@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import styled from 'styled-components';
 import { useGallery, GalleryGroup } from '../hooks/useGallery';
 import { photoURL, GalleryFile } from '../api/client';
@@ -15,9 +16,58 @@ interface LightboxState {
   index: number;
 }
 
+// ── Virtual row types ──────────────────────────────────────────────────────────
+
+type VirtualRow =
+  | { kind: 'heading'; group: GalleryGroup }
+  | { kind: 'tiles'; files: GalleryFile[]; groupFiles: GalleryFile[]; startIndex: number };
+
+const MIN_THUMB = 153; // 150px tile + 3px gap
+const HEADING_H = 44;  // date label row height estimate
+
+// ── GalleryView ────────────────────────────────────────────────────────────────
+
 export function GalleryView() {
   const { groups, loading, error, refresh } = useGallery();
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
+
+  // Container width drives column count
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(entries => setContainerWidth(entries[0].contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const colCount = Math.max(2, Math.floor(containerWidth / MIN_THUMB));
+
+  // Flatten groups → heading rows + tile rows
+  const rows = useMemo<VirtualRow[]>(() => {
+    const result: VirtualRow[] = [];
+    for (const group of groups) {
+      result.push({ kind: 'heading', group });
+      for (let i = 0; i < group.files.length; i += colCount) {
+        result.push({
+          kind: 'tiles',
+          files: group.files.slice(i, i + colCount),
+          groupFiles: group.files,
+          startIndex: i,
+        });
+      }
+    }
+    return result;
+  }, [groups, colCount]);
+
+  const virtualizer = useWindowVirtualizer({
+    count: rows.length,
+    estimateSize: i => rows[i]?.kind === 'heading' ? HEADING_H : MIN_THUMB,
+    overscan: 5,
+    scrollMargin: containerRef.current?.offsetTop ?? 0,
+  });
 
   useEffect(() => {
     refresh();
@@ -74,9 +124,31 @@ export function GalleryView() {
         </ActionBtn>
       </Header>
 
-      {groups.map(group => (
-        <GroupSection key={group.date} group={group} onOpen={openLightbox} />
-      ))}
+      <div ref={containerRef}>
+        <VirtualOuter style={{ height: virtualizer.getTotalSize() }}>
+          {virtualizer.getVirtualItems().map(vItem => {
+            const row = rows[vItem.index];
+            return (
+              <VirtualInner
+                key={vItem.key}
+                data-index={vItem.index}
+                ref={virtualizer.measureElement}
+                style={{ transform: `translateY(${vItem.start - virtualizer.options.scrollMargin}px)` }}
+              >
+                {row.kind === 'heading' ? (
+                  <DateHeading>{row.group.displayDate}</DateHeading>
+                ) : (
+                  <TileRow
+                    files={row.files}
+                    colCount={colCount}
+                    onOpen={i => openLightbox(row.groupFiles, row.startIndex + i)}
+                  />
+                )}
+              </VirtualInner>
+            );
+          })}
+        </VirtualOuter>
+      </div>
 
       {lightbox && (
         <Lightbox
@@ -91,28 +163,27 @@ export function GalleryView() {
   );
 }
 
-function GroupSection({
-  group,
+function TileRow({
+  files,
+  colCount,
   onOpen,
 }: {
-  group: GalleryGroup;
-  onOpen: (files: GalleryFile[], index: number) => void;
+  files: GalleryFile[];
+  colCount: number;
+  onOpen: (index: number) => void;
 }) {
   return (
-    <Section>
-      <DateHeading>{group.displayDate}</DateHeading>
-      <Grid>
-        {group.files.map((file, i) => (
-          <Thumb key={file.path} onClick={() => onOpen(group.files, i)}>
-            {isVideo(file) ? (
-              <VideoIcon>▶</VideoIcon>
-            ) : (
-              <img src={photoURL(file)} alt={file.name} loading="lazy" />
-            )}
-          </Thumb>
-        ))}
-      </Grid>
-    </Section>
+    <Grid $cols={colCount}>
+      {files.map((file, i) => (
+        <Thumb key={file.path} onClick={() => onOpen(i)}>
+          {isVideo(file) ? (
+            <VideoIcon>▶</VideoIcon>
+          ) : (
+            <img src={photoURL(file)} alt={file.name} loading="lazy" />
+          )}
+        </Thumb>
+      ))}
+    </Grid>
   );
 }
 
@@ -212,8 +283,16 @@ const ActionBtn = styled.button`
   }
 `;
 
-const Section = styled.section`
-  margin-bottom: ${({ theme }) => theme.spacing.xl};
+const VirtualOuter = styled.div`
+  position: relative;
+  width: 100%;
+`;
+
+const VirtualInner = styled.div`
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
 `;
 
 const DateHeading = styled.h3`
@@ -222,17 +301,14 @@ const DateHeading = styled.h3`
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  margin: 0 0 ${({ theme }) => theme.spacing.sm};
+  margin: 0;
+  padding: ${({ theme }) => `${theme.spacing.md} 0 ${theme.spacing.sm}`};
 `;
 
-const Grid = styled.div`
+const Grid = styled.div<{ $cols: number }>`
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(${({ $cols }) => $cols}, 1fr);
   gap: 3px;
-
-  @media (max-width: ${({ theme }) => theme.breakpoints.sm}) {
-    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-  }
 `;
 
 const Thumb = styled.div`
