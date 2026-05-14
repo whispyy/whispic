@@ -1,0 +1,20 @@
+# Web (Vite + React)
+web/node_modules/
+web/dist/
+web/.env
+web/.env.local
+web/.env.*.local
+
+# iOS / Xcode
+ios/build/
+ios/*.xcodeproj/xcuserdata/
+ios/*.xcworkspace/xcuserdata/
+ios/*.xcworkspace/xcshareddata/swiftpm/
+ios/DerivedData/
+ios/*.ipa
+ios/*.dSYM.zip
+ios/*.dSYM
+
+# macOS
+.DS_Store
+**/.DS_Store
