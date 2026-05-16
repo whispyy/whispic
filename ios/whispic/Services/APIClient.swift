@@ -73,6 +73,7 @@ final class APIClient {
         field("folderKey", "photos")
         field("subpath", subpath)
         field("filenameOverride", filename)
+        field("thumbnail", "on")
 
         body += "--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\nContent-Type: application/octet-stream\r\n\r\n"
             .data(using: .utf8)!
@@ -107,6 +108,18 @@ final class APIClient {
             resolvingAgainstBaseURL: false
         )!
         comps.queryItems = [URLQueryItem(name: "subpath", value: file.subpath)]
+        var req = URLRequest(url: comps.url!)
+        req.setValue("Bearer \(try token)", forHTTPHeaderField: "Authorization")
+        return req
+    }
+
+    func thumbnailRequest(for file: GalleryFile) throws -> URLRequest {
+        let base = try baseURL
+        var comps = URLComponents(
+            url: base.appendingPathComponent("api/browse/photos/\(file.filename)"),
+            resolvingAgainstBaseURL: false
+        )!
+        comps.queryItems = [URLQueryItem(name: "subpath", value: file.subpath + "/.thumbnails")]
         var req = URLRequest(url: comps.url!)
         req.setValue("Bearer \(try token)", forHTTPHeaderField: "Authorization")
         return req

@@ -6,8 +6,23 @@ struct GalleryFile: Codable, Identifiable {
     let path: String        // e.g. "2026/05/13/IMG_0042.jpg"
     let size: Int
     let modifiedAt: String
+    var hasThumbnail: Bool
 
     var id: String { path }
+
+    enum CodingKeys: String, CodingKey {
+        case name, path, size, modifiedAt
+        case hasThumbnail = "has_thumbnail"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name        = try c.decode(String.self, forKey: .name)
+        path        = try c.decode(String.self, forKey: .path)
+        size        = try c.decode(Int.self,    forKey: .size)
+        modifiedAt  = try c.decode(String.self, forKey: .modifiedAt)
+        hasThumbnail = (try? c.decode(Bool.self, forKey: .hasThumbnail)) ?? false
+    }
 
     /// Last path component: "IMG_0042.jpg"
     var filename: String { (path as NSString).lastPathComponent }

@@ -55,6 +55,7 @@ export interface GalleryFile {
   path: string;      // e.g. "2026/05/13/IMG_0042.jpg"
   size: number;
   modifiedAt: string;
+  has_thumbnail?: boolean;
 }
 
 export interface BrowseResponse {
@@ -81,6 +82,17 @@ export function photoURL(file: GalleryFile): string {
   );
 }
 
+export function thumbURL(file: GalleryFile): string {
+  const parts = file.path.split('/');
+  const filename = parts[parts.length - 1];
+  const subpath = parts.slice(0, -1).join('/') + '/.thumbnails';
+  const tok = getToken() ?? '';
+  return (
+    `${baseURL()}/api/browse/photos/${encodeURIComponent(filename)}` +
+    `?subpath=${encodeURIComponent(subpath)}&token=${encodeURIComponent(tok)}`
+  );
+}
+
 export function uploadFile(
   file: File,
   subpath: string,
@@ -91,6 +103,7 @@ export function uploadFile(
     body.append('folderKey', 'photos');
     body.append('subpath', subpath);
     body.append('filenameOverride', file.name);
+    body.append('thumbnail', 'on');
     body.append('file', file);
 
     const xhr = new XMLHttpRequest();

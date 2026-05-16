@@ -1,8 +1,9 @@
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import styled from 'styled-components';
 import { useGallery, GalleryGroup } from '../hooks/useGallery';
-import { photoURL, GalleryFile } from '../api/client';
+import { photoURL, thumbURL, GalleryFile } from '../api/client';
+import { usePullToRefresh } from '../hooks/usePullToRefresh';
 
 const VIDEO_EXTS = new Set(['mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v', 'ts']);
 
@@ -32,16 +33,19 @@ export function GalleryView() {
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
 
   // Container width drives column count
-  const containerRef = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
 
   useEffect(() => {
-    const el = containerRef.current;
+    const el = gridRef.current;
     if (!el) return;
     const ro = new ResizeObserver(entries => setContainerWidth(entries[0].contentRect.width));
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // Pull-to-refresh (mobile only — desktop keeps the Refresh button)
+  const { containerRef: pullRef, pullDistance, refreshing: ptr } = usePullToRefresh(async () => { await refresh(); });
 
   const colCount = Math.max(2, Math.floor(containerWidth / MIN_THUMB));
 
@@ -66,7 +70,7 @@ export function GalleryView() {
     count: rows.length,
     estimateSize: i => rows[i]?.kind === 'heading' ? HEADING_H : MIN_THUMB,
     overscan: 5,
-    scrollMargin: containerRef.current?.offsetTop ?? 0,
+    scrollMargin: gridRef.current?.offsetTop ?? 0,
   });
 
   useEffect(() => {
@@ -99,7 +103,15 @@ export function GalleryView() {
   }, [lightbox, prev, next, closeLightbox]);
 
   if (loading && groups.length === 0) {
-    return <Center><Spinner /></Center>;
+    return (
+      <SkeletonWrapper>
+        <SkeletonGrid>
+          {Array.from({ length: 24 }).map((_, i) => (
+            <SkeletonTile key={i} style={{ animationDelay: `${(i % 8) * 50}ms` }} />
+          ))}
+        </SkeletonGrid>
+      </SkeletonWrapper>
+    );
   }
 
   if (error && groups.length === 0) {
@@ -116,15 +128,19 @@ export function GalleryView() {
   }
 
   return (
-    <Wrapper>
-      <Header>
+    <Wrapper ref={pullRef as React.RefObject<HTMLDivElement>}>
+      <PullIndicator $distance={pullDistance} $refreshing={ptr}>
+        <PullSpinner $spin={ptr} $progress={Math.min(1, pullDistance / 80)} />
+      </PullIndicator>
+
+      <DesktopHeader>
         <PageTitle>Gallery</PageTitle>
         <ActionBtn onClick={refresh} disabled={loading}>
           {loading ? '…' : 'Refresh'}
         </ActionBtn>
-      </Header>
+      </DesktopHeader>
 
-      <div ref={containerRef}>
+      <div ref={gridRef}>
         <VirtualOuter style={{ height: virtualizer.getTotalSize() }}>
           {virtualizer.getVirtualItems().map(vItem => {
             const row = rows[vItem.index];
@@ -178,8 +194,10 @@ function TileRow({
         <Thumb key={file.path} onClick={() => onOpen(i)}>
           {isVideo(file) ? (
             <VideoIcon>▶</VideoIcon>
+          ) : file.has_thumbnail ? (
+            <img src={thumbURL(file)} alt={file.name} loading="lazy" />
           ) : (
-            <img src={photoURL(file)} alt={file.name} loading="lazy" />
+            <ThumbPlaceholder />
           )}
         </Thumb>
       ))}
@@ -230,16 +248,50 @@ const Wrapper = styled.div`
   margin: 0 auto;
 `;
 
-const Header = styled.div`
-  display: flex;
+const DesktopHeader = styled.div`
+  display: none;
   align-items: center;
   justify-content: space-between;
   margin-bottom: ${({ theme }) => theme.spacing.lg};
+
+  @media (min-width: ${({ theme }) => theme.breakpoints.md}) {
+    display: flex;
+  }
+`;
+
+const PullIndicator = styled.div<{ $distance: number; $refreshing: boolean }>`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  height: ${({ $distance, $refreshing }) => ($refreshing ? 48 : $distance * 0.6)}px;
+  transition: ${({ $refreshing, $distance }) =>
+    $refreshing && $distance > 0 ? 'height 300ms ease-out' : 'none'};
+
+  @media (min-width: ${({ theme }) => theme.breakpoints.md}) {
+    display: none;
+  }
+`;
+
+const PullSpinner = styled.div<{ $spin: boolean; $progress: number }>`
+  width: 20px;
+  height: 20px;
+  border: 2px solid ${({ theme }) => theme.colors.border};
+  border-top-color: ${({ theme }) => theme.colors.primary};
+  border-radius: 50%;
+  opacity: ${({ $spin, $progress }) => ($spin ? 1 : 0.4 + $progress * 0.6)};
+  transform: ${({ $spin, $progress }) => ($spin ? 'none' : `rotate(${$progress * 360}deg)`)};
+  animation: ${({ $spin }) => ($spin ? 'ptr-spin 0.8s linear infinite' : 'none')};
+  transition: ${({ $spin }) => ($spin ? 'opacity 200ms' : 'none')};
+
+  @keyframes ptr-spin {
+    to { transform: rotate(360deg); }
+  }
 `;
 
 const PageTitle = styled.h2`
-  font-size: 1.25rem;
-  font-weight: 600;
+  font-size: 1.375rem;
+  font-weight: 700;
   margin: 0;
   color: ${({ theme }) => theme.colors.text};
 `;
@@ -254,7 +306,7 @@ const Center = styled.div`
 `;
 
 const Muted = styled.p`
-  color: ${({ theme }) => theme.colors.textSecondary};
+  color: ${({ theme }) => theme.colors.textMuted};
   font-size: 0.9375rem;
 `;
 
@@ -264,21 +316,23 @@ const ErrorMsg = styled.p`
 `;
 
 const ActionBtn = styled.button`
-  background: ${({ theme }) => theme.colors.surface};
+  background: rgba(255, 255, 255, 0.05);
   border: 1px solid ${({ theme }) => theme.colors.border};
   border-radius: ${({ theme }) => theme.radius.sm};
-  color: ${({ theme }) => theme.colors.text};
+  color: ${({ theme }) => theme.colors.textSecondary};
   cursor: pointer;
-  font-size: 0.875rem;
-  padding: ${({ theme }) => `${theme.spacing.xs} ${theme.spacing.md}`};
-  transition: background 0.15s;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  padding: 5px 12px;
+  transition: background 0.15s, border-color 0.15s;
 
   &:hover:not(:disabled) {
-    background: ${({ theme }) => theme.colors.surfaceHover};
+    background: rgba(255, 255, 255, 0.08);
+    border-color: ${({ theme }) => theme.colors.borderLight};
   }
 
   &:disabled {
-    opacity: 0.4;
+    opacity: 0.35;
     cursor: default;
   }
 `;
@@ -297,10 +351,8 @@ const VirtualInner = styled.div`
 
 const DateHeading = styled.h3`
   color: ${({ theme }) => theme.colors.textSecondary};
-  font-size: 0.8125rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: 0.875rem;
+  font-weight: 600;
   margin: 0;
   padding: ${({ theme }) => `${theme.spacing.md} 0 ${theme.spacing.sm}`};
 `;
@@ -308,7 +360,11 @@ const DateHeading = styled.h3`
 const Grid = styled.div<{ $cols: number }>`
   display: grid;
   grid-template-columns: repeat(${({ $cols }) => $cols}, 1fr);
-  gap: 3px;
+  gap: 4px;
+
+  @media (min-width: ${({ theme }) => theme.breakpoints.md}) {
+    gap: 8px;
+  }
 `;
 
 const Thumb = styled.div`
@@ -319,18 +375,39 @@ const Thumb = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: 8px;
+  position: relative;
+  transition: box-shadow 0.15s;
 
   img {
     width: 100%;
     height: 100%;
     object-fit: cover;
     display: block;
-    transition: transform 0.2s;
   }
 
-  &:hover img {
-    transform: scale(1.05);
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: transparent;
+    transition: background 0.15s;
+    border-radius: inherit;
   }
+
+  &:hover {
+    box-shadow: 0 0 0 2px ${({ theme }) => theme.colors.primary};
+  }
+
+  &:hover::after {
+    background: rgba(0, 0, 0, 0.18);
+  }
+`;
+
+const ThumbPlaceholder = styled.div`
+  width: 100%;
+  height: 100%;
+  background: ${({ theme }) => theme.colors.surface};
 `;
 
 const VideoIcon = styled.div`
@@ -338,16 +415,31 @@ const VideoIcon = styled.div`
   font-size: 1.75rem;
 `;
 
-const Spinner = styled.div`
-  width: 32px;
-  height: 32px;
-  border: 3px solid ${({ theme }) => theme.colors.border};
-  border-top-color: ${({ theme }) => theme.colors.primary};
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+const SkeletonWrapper = styled.div`
+  padding: ${({ theme }) => theme.spacing.lg};
+  max-width: 1400px;
+  margin: 0 auto;
+`;
 
-  @keyframes spin {
-    to { transform: rotate(360deg); }
+const SkeletonGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 4px;
+
+  @media (min-width: ${({ theme }) => theme.breakpoints.md}) {
+    gap: 8px;
+  }
+`;
+
+const SkeletonTile = styled.div`
+  aspect-ratio: 1;
+  border-radius: 8px;
+  background: ${({ theme }) => theme.colors.surface};
+  animation: pulse 1.4s ease-in-out infinite;
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
   }
 `;
 

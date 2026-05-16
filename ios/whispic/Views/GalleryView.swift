@@ -57,13 +57,13 @@ struct ThumbnailView: View {
     let file: GalleryFile
 
     var body: some View {
-        if let req = try? APIClient.shared.photoRequest(for: file) {
+        if file.hasThumbnail, let req = try? APIClient.shared.thumbnailRequest(for: file) {
             AuthenticatedAsyncImage(request: req)
                 .scaledToFill()
                 .frame(width: 100, height: 100)
                 .clipped()
         } else {
-            Color.secondary.opacity(0.2)
+            Color.secondary.opacity(0.15)
                 .frame(width: 100, height: 100)
         }
     }
@@ -110,7 +110,7 @@ struct AuthenticatedAsyncImage: View {
 
     var body: some View {
         Group {
-            if let image {
+            if let image = image {
                 Image(uiImage: image).resizable()
             } else if isLoading {
                 Color.secondary.opacity(0.2).overlay { ProgressView() }

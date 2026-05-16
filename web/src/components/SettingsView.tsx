@@ -87,8 +87,8 @@ const Wrapper = styled.div`
 `;
 
 const PageTitle = styled.h2`
-  font-size: 1.25rem;
-  font-weight: 600;
+  font-size: 1.375rem;
+  font-weight: 700;
   margin: 0 0 ${({ theme }) => theme.spacing.lg};
   color: ${({ theme }) => theme.colors.text};
 `;
@@ -96,24 +96,28 @@ const PageTitle = styled.h2`
 const Section = styled.section`
   background: ${({ theme }) => theme.colors.surface};
   border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: ${({ theme }) => theme.radius.md};
-  padding: ${({ theme }) => theme.spacing.lg};
+  border-radius: ${({ theme }) => theme.radius.lg};
+  overflow: hidden;
   margin-bottom: ${({ theme }) => theme.spacing.lg};
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 `;
 
 const SectionTitle = styled.h3`
-  color: ${({ theme }) => theme.colors.textSecondary};
-  font-size: 0.75rem;
-  font-weight: 500;
+  color: ${({ theme }) => theme.colors.textFaint};
+  font-size: 0.6875rem;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin: 0 0 ${({ theme }) => theme.spacing.md};
+  letter-spacing: 0.07em;
+  margin: 0;
+  padding: ${({ theme }) => `${theme.spacing.md} ${theme.spacing.lg}`};
+  border-bottom: 1px solid ${({ theme }) => theme.colors.border};
 `;
 
 const Form = styled.form`
   display: flex;
   flex-direction: column;
   gap: ${({ theme }) => theme.spacing.md};
+  padding: ${({ theme }) => theme.spacing.lg};
 `;
 
 const Field = styled.div`
@@ -143,21 +147,28 @@ const Input = styled.input`
   }
 
   &::placeholder {
-    color: ${({ theme }) => theme.colors.textSecondary};
-    opacity: 0.6;
+    color: ${({ theme }) => theme.colors.textFaint};
   }
 `;
 
 const ErrorText = styled.p`
   color: ${({ theme }) => theme.colors.error};
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  border-radius: ${({ theme }) => theme.radius.sm};
   font-size: 0.875rem;
   margin: 0;
+  padding: ${({ theme }) => `${theme.spacing.sm} ${theme.spacing.md}`};
 `;
 
 const SuccessText = styled.p`
   color: ${({ theme }) => theme.colors.success};
+  background: rgba(74, 222, 128, 0.1);
+  border: 1px solid rgba(74, 222, 128, 0.2);
+  border-radius: ${({ theme }) => theme.radius.sm};
   font-size: 0.875rem;
   margin: 0;
+  padding: ${({ theme }) => `${theme.spacing.sm} ${theme.spacing.md}`};
 `;
 
 const ConnectBtn = styled.button`
@@ -184,15 +195,21 @@ const ConnectBtn = styled.button`
 
 const DangerBtn = styled.button`
   background: none;
-  border: 1px solid ${({ theme }) => theme.colors.error};
-  border-radius: ${({ theme }) => theme.radius.sm};
+  border: none;
+  border-radius: 0;
   color: ${({ theme }) => theme.colors.error};
   cursor: pointer;
   font-size: 0.9375rem;
-  padding: ${({ theme }) => `${theme.spacing.sm} ${theme.spacing.md}`};
+  font-weight: 500;
+  width: 100%;
+  padding: ${({ theme }) => `${theme.spacing.md} ${theme.spacing.lg}`};
+  text-align: left;
   transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.sm};
 
   &:hover {
-    background: ${({ theme }) => `${theme.colors.error}25`};
+    background: rgba(248, 113, 113, 0.08);
   }
 `;

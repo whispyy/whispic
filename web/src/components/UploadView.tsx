@@ -42,7 +42,13 @@ export function UploadView() {
         onDrop={handleDrop}
         onClick={() => inputRef.current?.click()}
       >
-        <DropIcon>↑</DropIcon>
+        <DropIcon>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={40} height={40}>
+            <polyline points="16 16 12 12 8 16" />
+            <line x1="12" y1="12" x2="12" y2="21" />
+            <path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3" />
+          </svg>
+        </DropIcon>
         <DropText>Drop photos &amp; videos here</DropText>
         <DropSub>or click to browse</DropSub>
         <input
@@ -109,16 +115,16 @@ const Wrapper = styled.div`
 `;
 
 const PageTitle = styled.h2`
-  font-size: 1.25rem;
-  font-weight: 600;
+  font-size: 1.375rem;
+  font-weight: 700;
   margin: 0 0 ${({ theme }) => theme.spacing.lg};
   color: ${({ theme }) => theme.colors.text};
 `;
 
 const DropZone = styled.div<{ $dragging: boolean }>`
   border: 2px dashed ${({ theme, $dragging }) => $dragging ? theme.colors.primary : theme.colors.border};
-  border-radius: ${({ theme }) => theme.radius.lg};
-  background: ${({ theme, $dragging }) => $dragging ? `${theme.colors.primary}18` : theme.colors.surface};
+  border-radius: ${({ theme }) => theme.radius.xl};
+  background: ${({ theme, $dragging }) => $dragging ? theme.colors.primaryBg : theme.colors.surface};
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -137,20 +143,19 @@ const DropZone = styled.div<{ $dragging: boolean }>`
 `;
 
 const DropIcon = styled.div`
-  font-size: 2.5rem;
-  color: ${({ theme }) => theme.colors.textSecondary};
+  color: ${({ theme }) => theme.colors.textFaint};
   line-height: 1;
 `;
 
 const DropText = styled.p`
-  color: ${({ theme }) => theme.colors.text};
+  color: ${({ theme }) => theme.colors.textSecondary};
   font-size: 1rem;
   font-weight: 500;
   margin: 0;
 `;
 
 const DropSub = styled.p`
-  color: ${({ theme }) => theme.colors.textSecondary};
+  color: ${({ theme }) => theme.colors.textMuted};
   font-size: 0.875rem;
   margin: 0;
 `;
@@ -255,6 +260,7 @@ const QueueItem = styled.li`
   align-items: center;
   justify-content: space-between;
   background: ${({ theme }) => theme.colors.surface};
+  border: 1px solid ${({ theme }) => theme.colors.border};
   border-radius: ${({ theme }) => theme.radius.sm};
   padding: ${({ theme }) => `${theme.spacing.sm} ${theme.spacing.md}`};
   gap: ${({ theme }) => theme.spacing.md};
