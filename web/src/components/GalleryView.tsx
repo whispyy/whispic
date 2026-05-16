@@ -23,8 +23,15 @@ type VirtualRow =
   | { kind: 'heading'; group: GalleryGroup }
   | { kind: 'tiles'; files: GalleryFile[]; groupFiles: GalleryFile[]; startIndex: number };
 
-const MIN_THUMB = 153; // 150px tile + 3px gap
-const HEADING_H = 44;  // date label row height estimate
+const HEADING_H = 48;  // date label row height estimate
+
+function getColCount(width: number): number {
+  if (width >= 1280) return 6;
+  if (width >= 1024) return 5;
+  if (width >= 768)  return 4;
+  if (width >= 480)  return 3;
+  return 2;
+}
 
 // ── GalleryView ────────────────────────────────────────────────────────────────
 
@@ -47,7 +54,8 @@ export function GalleryView() {
   // Pull-to-refresh (mobile only — desktop keeps the Refresh button)
   const { containerRef: pullRef, pullDistance, refreshing: ptr } = usePullToRefresh(async () => { await refresh(); });
 
-  const colCount = Math.max(2, Math.floor(containerWidth / MIN_THUMB));
+  const colCount = getColCount(containerWidth);
+  const tileSize = containerWidth > 0 ? Math.floor(containerWidth / colCount) : 160;
 
   // Flatten groups → heading rows + tile rows
   const rows = useMemo<VirtualRow[]>(() => {
@@ -68,7 +76,7 @@ export function GalleryView() {
 
   const virtualizer = useWindowVirtualizer({
     count: rows.length,
-    estimateSize: i => rows[i]?.kind === 'heading' ? HEADING_H : MIN_THUMB,
+    estimateSize: i => rows[i]?.kind === 'heading' ? HEADING_H : tileSize,
     overscan: 5,
     scrollMargin: gridRef.current?.offsetTop ?? 0,
   });
@@ -152,7 +160,10 @@ export function GalleryView() {
                 style={{ transform: `translateY(${vItem.start - virtualizer.options.scrollMargin}px)` }}
               >
                 {row.kind === 'heading' ? (
-                  <DateHeading>{row.group.displayDate}</DateHeading>
+                  <DateHeading>
+                    <span>{row.group.displayDate}</span>
+                    <PhotoCount>{row.group.files.length} {row.group.files.length === 1 ? 'photo' : 'photos'}</PhotoCount>
+                  </DateHeading>
                 ) : (
                   <TileRow
                     files={row.files}
@@ -243,16 +254,20 @@ function Lightbox({
 // ── Styled Components ──────────────────────────────────────────────────────────
 
 const Wrapper = styled.div`
-  padding: ${({ theme }) => theme.spacing.lg};
   max-width: 1400px;
   margin: 0 auto;
+  padding: 12px 8px 0;
+
+  @media (min-width: ${({ theme }) => theme.breakpoints.md}) {
+    padding: 12px 16px 0;
+  }
 `;
 
 const DesktopHeader = styled.div`
   display: none;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: ${({ theme }) => theme.spacing.lg};
+  margin-bottom: ${({ theme }) => theme.spacing.md};
 
   @media (min-width: ${({ theme }) => theme.breakpoints.md}) {
     display: flex;
@@ -349,21 +364,36 @@ const VirtualInner = styled.div`
   width: 100%;
 `;
 
-const DateHeading = styled.h3`
-  color: ${({ theme }) => theme.colors.textSecondary};
-  font-size: 0.875rem;
-  font-weight: 600;
-  margin: 0;
-  padding: ${({ theme }) => `${theme.spacing.md} 0 ${theme.spacing.sm}`};
+const DateHeading = styled.div`
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 12px 0 4px;
+  border-bottom: 1px solid ${({ theme }) => theme.colors.border};
+  margin-bottom: 4px;
+
+  span {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: ${({ theme }) => theme.colors.textSecondary};
+  }
+`;
+
+const PhotoCount = styled.span`
+  font-size: 0.75rem;
+  color: ${({ theme }) => theme.colors.textFaint};
+  margin-left: ${({ theme }) => theme.spacing.sm};
 `;
 
 const Grid = styled.div<{ $cols: number }>`
   display: grid;
   grid-template-columns: repeat(${({ $cols }) => $cols}, 1fr);
   gap: 4px;
+  margin-bottom: 4px;
 
   @media (min-width: ${({ theme }) => theme.breakpoints.md}) {
     gap: 8px;
+    margin-bottom: 8px;
   }
 `;
 
@@ -416,9 +446,13 @@ const VideoIcon = styled.div`
 `;
 
 const SkeletonWrapper = styled.div`
-  padding: ${({ theme }) => theme.spacing.lg};
   max-width: 1400px;
   margin: 0 auto;
+  padding: 12px 8px 0;
+
+  @media (min-width: ${({ theme }) => theme.breakpoints.md}) {
+    padding: 12px 16px 0;
+  }
 `;
 
 const SkeletonGrid = styled.div`
