@@ -7,6 +7,9 @@ import { LoginScreen } from './components/LoginScreen';
 import { GalleryView } from './components/GalleryView';
 import { UploadView } from './components/UploadView';
 import { SettingsView } from './components/SettingsView';
+import { InstallPrompt } from './components/pwa/InstallPrompt';
+import { UpdatePrompt } from './components/pwa/UpdatePrompt';
+import { OfflineBanner } from './components/pwa/OfflineBanner';
 
 type Tab = 'gallery' | 'upload' | 'settings';
 
@@ -52,6 +55,7 @@ export default function App() {
   return (
     <ThemeProvider theme={theme}>
       <GlobalStyle />
+      <UpdatePrompt />
       {!authed ? (
         <LoginScreen onLogin={() => setAuthed(true)} />
       ) : (
@@ -91,6 +95,9 @@ export default function App() {
             {tab === 'upload'   && <UploadView />}
             {tab === 'settings' && <SettingsView onSignOut={handleSignOut} />}
           </Content>
+
+          <OfflineBanner />
+          <InstallPrompt />
 
           {/* ── Mobile bottom pill nav (hidden on desktop) ── */}
           <BottomNavWrap>

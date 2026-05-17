@@ -1,0 +1,45 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg" cx="40%" cy="35%" r="70%">
+      <stop offset="0%" stop-color="#1e2535"/>
+      <stop offset="100%" stop-color="#0d1117"/>
+    </radialGradient>
+    <radialGradient id="lens" cx="38%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#818cf8"/>
+      <stop offset="60%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#4f46e5"/>
+    </radialGradient>
+    <radialGradient id="lensShine" cx="35%" cy="30%" r="50%">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.25)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background rounded square -->
+  <rect width="512" height="512" rx="112" ry="112" fill="url(#bg)"/>
+
+  <!-- Camera body -->
+  <rect x="108" y="192" width="296" height="196" rx="28" ry="28" fill="rgba(255,255,255,0.07)" stroke="rgba(255,255,255,0.12)" stroke-width="1.5"/>
+
+  <!-- Viewfinder bump -->
+  <rect x="192" y="162" width="88" height="38" rx="12" ry="12" fill="rgba(255,255,255,0.07)" stroke="rgba(255,255,255,0.12)" stroke-width="1.5"/>
+
+  <!-- Shutter button -->
+  <circle cx="374" cy="232" r="14" fill="rgba(255,255,255,0.1)" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+
+  <!-- Lens ring outer -->
+  <circle cx="256" cy="290" r="84" fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.1)" stroke-width="2"/>
+
+  <!-- Lens fill -->
+  <circle cx="256" cy="290" r="68" fill="url(#lens)"/>
+
+  <!-- Lens shine -->
+  <circle cx="256" cy="290" r="68" fill="url(#lensShine)"/>
+
+  <!-- Inner lens ring -->
+  <circle cx="256" cy="290" r="44" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="1.5"/>
+
+  <!-- Center dot -->
+  <circle cx="256" cy="290" r="14" fill="rgba(255,255,255,0.25)"/>
+  <circle cx="248" cy="282" r="5" fill="rgba(255,255,255,0.4)"/>
+</svg>
