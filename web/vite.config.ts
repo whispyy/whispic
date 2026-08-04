@@ -39,21 +39,21 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
         runtimeCaching: [
           {
-            // Gallery listing — network-first so it stays fresh, falls back offline
-            urlPattern: /\/api\/browse\/photos(\?.*)?$/i,
+            // Timeline listing — network-first so it stays fresh, falls back offline
+            urlPattern: /\/api\/timeline(\?.*)?$/i,
             handler: 'NetworkFirst',
             options: {
               cacheName: 'api-gallery-cache',
               expiration: {
-                maxEntries: 10,
+                maxEntries: 20,
                 maxAgeSeconds: 60 * 5, // 5 minutes
               },
               cacheableResponse: { statuses: [200] },
             },
           },
           {
-            // Photo files and thumbnails — cache-first for fast browsing / offline
-            urlPattern: /\/api\/browse\/photos\/.+/i,
+            // Thumbnails, previews, and originals — cache-first for fast browsing / offline
+            urlPattern: /\/api\/assets\/.+\/(thumb|preview|original)(\?.*)?$/i,
             handler: 'CacheFirst',
             options: {
               cacheName: 'photos-cache',

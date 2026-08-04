@@ -7,6 +7,8 @@ struct ContentView: View {
                 .tabItem { Label("Backup", systemImage: "arrow.up.circle") }
             GalleryView()
                 .tabItem { Label("Gallery", systemImage: "photo.on.rectangle") }
+            AlbumsView()
+                .tabItem { Label("Albums", systemImage: "rectangle.stack") }
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gear") }
         }

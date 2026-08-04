@@ -45,6 +45,10 @@ struct SettingsView: View {
                     NavigationLink("Select Albums") { AlbumSelectionView() }
                 }
 
+                Section("Library") {
+                    NavigationLink("Trash") { TrashView() }
+                }
+
                 if config.hasToken {
                     Section {
                         Button("Sign Out", role: .destructive) {

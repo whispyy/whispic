@@ -2,18 +2,13 @@ import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import styled from 'styled-components';
 import { useGallery, GalleryGroup } from '../hooks/useGallery';
-import { photoURL, thumbURL, GalleryFile } from '../api/client';
+import { assetThumbURL, AssetSummary, SearchParams } from '../api/client';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
-
-const VIDEO_EXTS = new Set(['mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v', 'ts']);
-
-function isVideo(file: GalleryFile): boolean {
-  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-  return VIDEO_EXTS.has(ext);
-}
+import { Lightbox } from './Lightbox';
+import { isVideo, formatTime } from '../utils/asset';
 
 interface LightboxState {
-  files: GalleryFile[];
+  files: AssetSummary[];
   index: number;
 }
 
@@ -21,7 +16,7 @@ interface LightboxState {
 
 type VirtualRow =
   | { kind: 'heading'; group: GalleryGroup }
-  | { kind: 'tiles'; files: GalleryFile[]; groupFiles: GalleryFile[]; startIndex: number };
+  | { kind: 'tiles'; files: AssetSummary[]; groupFiles: AssetSummary[]; startIndex: number };
 
 const HEADING_H = 48;  // date label row height estimate
 
@@ -35,8 +30,15 @@ function getColCount(width: number): number {
 
 // ── GalleryView ────────────────────────────────────────────────────────────────
 
+const EMPTY_FILTERS: SearchParams = {};
+
 export function GalleryView() {
-  const { groups, loading, error, refresh } = useGallery();
+  const [filters, setFilters] = useState<SearchParams>(EMPTY_FILTERS);
+  const [draftFilters, setDraftFilters] = useState<SearchParams>(EMPTY_FILTERS);
+  const [showFilters, setShowFilters] = useState(false);
+  const hasActiveFilters = Object.values(filters).some(v => v !== undefined && v !== '' && v !== false);
+
+  const { groups, loading, loadingMore, hasMore, error, refresh, loadMore, updateItem, removeItem } = useGallery(filters);
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
 
   // Container width drives column count
@@ -83,9 +85,34 @@ export function GalleryView() {
 
   useEffect(() => {
     refresh();
-  }, [refresh]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
 
-  const openLightbox = useCallback((files: GalleryFile[], index: number) => {
+  function applyFilters() {
+    setFilters(draftFilters);
+    setShowFilters(false);
+  }
+
+  function clearFilters() {
+    setDraftFilters(EMPTY_FILTERS);
+    setFilters(EMPTY_FILTERS);
+    setShowFilters(false);
+  }
+
+  // Infinite scroll: fetch the next timeline page once the virtualizer
+  // nears the end of the currently loaded rows.
+  const virtualItems = virtualizer.getVirtualItems();
+  const lastVirtualIndex = virtualItems[virtualItems.length - 1]?.index;
+
+  useEffect(() => {
+    if (lastVirtualIndex === undefined) return;
+    if (!hasMore || loadingMore) return;
+    if (lastVirtualIndex >= rows.length - 5) {
+      loadMore();
+    }
+  }, [lastVirtualIndex, rows.length, hasMore, loadingMore, loadMore]);
+
+  const openLightbox = useCallback((files: AssetSummary[], index: number) => {
     setLightbox({ files, index });
   }, []);
 
@@ -143,14 +170,77 @@ export function GalleryView() {
 
       <DesktopHeader>
         <PageTitle>Gallery</PageTitle>
-        <ActionBtn onClick={refresh} disabled={loading}>
-          {loading ? '…' : 'Refresh'}
-        </ActionBtn>
+        <HeaderActions>
+          <ActionBtn onClick={() => setShowFilters(v => !v)}>
+            {hasActiveFilters ? 'Filters active' : 'Search & filter'}
+          </ActionBtn>
+          <ActionBtn onClick={refresh} disabled={loading}>
+            {loading ? '…' : 'Refresh'}
+          </ActionBtn>
+        </HeaderActions>
       </DesktopHeader>
+
+      {showFilters && (
+        <FilterPanel>
+          <FilterRow>
+            <FilterInput
+              value={draftFilters.q ?? ''}
+              onChange={e => setDraftFilters(f => ({ ...f, q: e.target.value || undefined }))}
+              placeholder="Search filename, camera, place…"
+            />
+          </FilterRow>
+          <FilterRow>
+            <FilterSelect
+              value={draftFilters.type ?? ''}
+              onChange={e => setDraftFilters(f => ({ ...f, type: (e.target.value || undefined) as SearchParams['type'] }))}
+            >
+              <option value="">Any type</option>
+              <option value="photo">Photos</option>
+              <option value="video">Videos</option>
+            </FilterSelect>
+            <FilterLabel>
+              <input
+                type="checkbox"
+                checked={draftFilters.favorite ?? false}
+                onChange={e => setDraftFilters(f => ({ ...f, favorite: e.target.checked || undefined }))}
+              />
+              Favorites only
+            </FilterLabel>
+          </FilterRow>
+          <FilterRow>
+            <FilterInput
+              value={draftFilters.camera ?? ''}
+              onChange={e => setDraftFilters(f => ({ ...f, camera: e.target.value || undefined }))}
+              placeholder="Camera model"
+            />
+            <FilterInput
+              value={draftFilters.place ?? ''}
+              onChange={e => setDraftFilters(f => ({ ...f, place: e.target.value || undefined }))}
+              placeholder="Place"
+            />
+          </FilterRow>
+          <FilterRow>
+            <FilterInput
+              type="date"
+              value={draftFilters.from ?? ''}
+              onChange={e => setDraftFilters(f => ({ ...f, from: e.target.value || undefined }))}
+            />
+            <FilterInput
+              type="date"
+              value={draftFilters.to ?? ''}
+              onChange={e => setDraftFilters(f => ({ ...f, to: e.target.value || undefined }))}
+            />
+          </FilterRow>
+          <FilterRow>
+            <ActionBtn onClick={applyFilters}>Apply</ActionBtn>
+            <ActionBtn onClick={clearFilters}>Clear</ActionBtn>
+          </FilterRow>
+        </FilterPanel>
+      )}
 
       <div ref={gridRef}>
         <VirtualOuter style={{ height: virtualizer.getTotalSize() }}>
-          {virtualizer.getVirtualItems().map(vItem => {
+          {virtualItems.map(vItem => {
             const row = rows[vItem.index];
             return (
               <VirtualInner
@@ -184,6 +274,8 @@ export function GalleryView() {
           onClose={closeLightbox}
           onPrev={prev}
           onNext={next}
+          onFavoriteChange={(id, favorite) => updateItem(id, { favorite })}
+          onTrashed={id => removeItem(id)}
         />
       )}
     </Wrapper>
@@ -195,59 +287,24 @@ function TileRow({
   colCount,
   onOpen,
 }: {
-  files: GalleryFile[];
+  files: AssetSummary[];
   colCount: number;
   onOpen: (index: number) => void;
 }) {
   return (
     <Grid $cols={colCount}>
       {files.map((file, i) => (
-        <Thumb key={file.path} onClick={() => onOpen(i)}>
+        <Thumb key={file.id} onClick={() => onOpen(i)}>
           {isVideo(file) ? (
             <VideoIcon>▶</VideoIcon>
-          ) : file.has_thumbnail ? (
-            <img src={thumbURL(file)} alt={file.name} loading="lazy" />
+          ) : file.hasThumb ? (
+            <img src={assetThumbURL(file.id)} alt={formatTime(file.takenAt)} loading="lazy" />
           ) : (
             <ThumbPlaceholder />
           )}
         </Thumb>
       ))}
     </Grid>
-  );
-}
-
-function Lightbox({
-  files,
-  index,
-  onClose,
-  onPrev,
-  onNext,
-}: {
-  files: GalleryFile[];
-  index: number;
-  onClose: () => void;
-  onPrev: () => void;
-  onNext: () => void;
-}) {
-  const file = files[index];
-  return (
-    <Overlay onClick={onClose}>
-      <LightboxInner onClick={e => e.stopPropagation()}>
-        {isVideo(file) ? (
-          <Video src={photoURL(file)} controls />
-        ) : (
-          <FullImg src={photoURL(file)} alt={file.name} />
-        )}
-        <Caption>{file.name}</Caption>
-        {index > 0 && (
-          <NavBtn $side="left" onClick={onPrev} aria-label="Previous">‹</NavBtn>
-        )}
-        {index < files.length - 1 && (
-          <NavBtn $side="right" onClick={onNext} aria-label="Next">›</NavBtn>
-        )}
-        <CloseBtn onClick={onClose} aria-label="Close">✕</CloseBtn>
-      </LightboxInner>
-    </Overlay>
   );
 }
 
@@ -264,14 +321,68 @@ const Wrapper = styled.div`
 `;
 
 const DesktopHeader = styled.div`
-  display: none;
+  display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: ${({ theme }) => theme.spacing.md};
+  gap: ${({ theme }) => theme.spacing.sm};
+`;
 
-  @media (min-width: ${({ theme }) => theme.breakpoints.md}) {
-    display: flex;
+const HeaderActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.sm};
+`;
+
+const FilterPanel = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: ${({ theme }) => theme.spacing.sm};
+  background: ${({ theme }) => theme.colors.surface};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: ${({ theme }) => theme.radius.lg};
+  padding: ${({ theme }) => theme.spacing.md};
+  margin-bottom: ${({ theme }) => theme.spacing.md};
+`;
+
+const FilterRow = styled.div`
+  display: flex;
+  gap: ${({ theme }) => theme.spacing.sm};
+  flex-wrap: wrap;
+`;
+
+const FilterInput = styled.input`
+  flex: 1;
+  min-width: 120px;
+  background: ${({ theme }) => theme.colors.bg};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: ${({ theme }) => theme.radius.sm};
+  color: ${({ theme }) => theme.colors.text};
+  font-size: 0.875rem;
+  padding: ${({ theme }) => `${theme.spacing.sm} ${theme.spacing.md}`};
+  outline: none;
+
+  &:focus {
+    border-color: ${({ theme }) => theme.colors.primary};
   }
+`;
+
+const FilterSelect = styled.select`
+  background: ${({ theme }) => theme.colors.bg};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: ${({ theme }) => theme.radius.sm};
+  color: ${({ theme }) => theme.colors.text};
+  font-size: 0.875rem;
+  padding: ${({ theme }) => `${theme.spacing.sm} ${theme.spacing.md}`};
+  outline: none;
+`;
+
+const FilterLabel = styled.label`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.xs};
+  color: ${({ theme }) => theme.colors.textSecondary};
+  font-size: 0.875rem;
 `;
 
 const PullIndicator = styled.div<{ $distance: number; $refreshing: boolean }>`
@@ -477,85 +588,3 @@ const SkeletonTile = styled.div`
   }
 `;
 
-const Overlay = styled.div`
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.92);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-`;
-
-const LightboxInner = styled.div`
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  max-width: 90vw;
-  max-height: 90vh;
-`;
-
-const FullImg = styled.img`
-  max-width: 90vw;
-  max-height: 85vh;
-  object-fit: contain;
-  border-radius: ${({ theme }) => theme.radius.sm};
-`;
-
-const Video = styled.video`
-  max-width: 90vw;
-  max-height: 85vh;
-  border-radius: ${({ theme }) => theme.radius.sm};
-`;
-
-const Caption = styled.p`
-  color: ${({ theme }) => theme.colors.textSecondary};
-  font-size: 0.8125rem;
-  margin: ${({ theme }) => theme.spacing.sm} 0 0;
-`;
-
-const NavBtn = styled.button<{ $side: 'left' | 'right' }>`
-  position: fixed;
-  top: 50%;
-  ${({ $side }) => $side}: ${({ theme }) => theme.spacing.lg};
-  transform: translateY(-50%);
-  background: rgba(255, 255, 255, 0.1);
-  border: none;
-  border-radius: 50%;
-  color: #fff;
-  cursor: pointer;
-  font-size: 2rem;
-  width: 48px;
-  height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s;
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.2);
-  }
-`;
-
-const CloseBtn = styled.button`
-  position: fixed;
-  top: ${({ theme }) => theme.spacing.lg};
-  right: ${({ theme }) => theme.spacing.lg};
-  background: rgba(255, 255, 255, 0.1);
-  border: none;
-  border-radius: 50%;
-  color: #fff;
-  cursor: pointer;
-  font-size: 1rem;
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s;
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.2);
-  }
-`;

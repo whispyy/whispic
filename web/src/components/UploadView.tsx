@@ -2,17 +2,8 @@ import { useRef, useState } from 'react';
 import styled from 'styled-components';
 import { useUpload, UploadItem } from '../hooks/useUpload';
 
-function todaySubpath(): string {
-  const d = new Date();
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}/${mm}/${dd}`;
-}
-
 export function UploadView() {
   const { queue, isRunning, addFiles, clearDone, start } = useUpload();
-  const [subpath, setSubpath] = useState(todaySubpath());
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -29,6 +20,7 @@ export function UploadView() {
 
   const pending = queue.filter(i => i.status === 'pending').length;
   const done = queue.filter(i => i.status === 'done').length;
+  const duplicates = queue.filter(i => i.status === 'duplicate').length;
   const errors = queue.filter(i => i.status === 'error').length;
 
   return (
@@ -62,23 +54,13 @@ export function UploadView() {
       </DropZone>
 
       <Controls>
-        <Field>
-          <FieldLabel>Date folder</FieldLabel>
-          <DateInput
-            type="text"
-            value={subpath}
-            onChange={e => setSubpath(e.target.value)}
-            placeholder="YYYY/MM/DD"
-            spellCheck={false}
-          />
-        </Field>
         <Actions>
-          {(done > 0 || errors > 0) && (
+          {(done > 0 || duplicates > 0 || errors > 0) && (
             <ClearBtn onClick={clearDone}>Clear done</ClearBtn>
           )}
           <StartBtn
-            onClick={() => start(subpath)}
-            disabled={isRunning || pending === 0 || !subpath}
+            onClick={() => start()}
+            disabled={isRunning || pending === 0}
           >
             {isRunning ? 'Uploading…' : `Upload ${pending} file${pending !== 1 ? 's' : ''}`}
           </StartBtn>
@@ -100,7 +82,9 @@ function QueueRow({ item }: { item: UploadItem }) {
       <ItemName title={item.file.name}>{item.file.name}</ItemName>
       <ItemRight>
         {item.status === 'uploading' && <ProgressBar $value={item.progress} />}
+        {item.status === 'hashing' && <Badge $color="neutral">Hashing…</Badge>}
         {item.status === 'done' && <Badge $color="success">Done</Badge>}
+        {item.status === 'duplicate' && <Badge $color="neutral">Already backed up</Badge>}
         {item.status === 'error' && <Badge $color="error" title={item.error}>Error</Badge>}
         {item.status === 'pending' && <Badge $color="neutral">Pending</Badge>}
       </ItemRight>
@@ -162,43 +146,9 @@ const DropSub = styled.p`
 
 const Controls = styled.div`
   display: flex;
-  align-items: flex-end;
-  gap: ${({ theme }) => theme.spacing.md};
+  justify-content: flex-end;
   margin-bottom: ${({ theme }) => theme.spacing.lg};
   flex-wrap: wrap;
-`;
-
-const Field = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: ${({ theme }) => theme.spacing.xs};
-  flex: 1;
-  min-width: 160px;
-`;
-
-const FieldLabel = styled.label`
-  color: ${({ theme }) => theme.colors.textSecondary};
-  font-size: 0.75rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-`;
-
-const DateInput = styled.input`
-  background: ${({ theme }) => theme.colors.surface};
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: ${({ theme }) => theme.radius.sm};
-  color: ${({ theme }) => theme.colors.text};
-  font-size: 0.9375rem;
-  font-family: monospace;
-  padding: ${({ theme }) => `${theme.spacing.sm} ${theme.spacing.md}`};
-  outline: none;
-  width: 100%;
-  transition: border-color 0.15s;
-
-  &:focus {
-    border-color: ${({ theme }) => theme.colors.primary};
-  }
 `;
 
 const Actions = styled.div`

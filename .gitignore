@@ -5,6 +5,12 @@ web/.env
 web/.env.local
 web/.env.*.local
 
+# Server (Node + TS)
+server/node_modules/
+server/dist/
+server/photos-dev/
+server/*.sqlite
+
 # iOS / Xcode
 ios/build/
 ios/*.xcodeproj/xcuserdata/

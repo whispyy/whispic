@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
-import { uploadFile } from '../api/client';
+import { sha256OfFile, checkAssetExists, uploadAsset } from '../api/client';
 
-export type UploadStatus = 'pending' | 'uploading' | 'done' | 'error';
+export type UploadStatus = 'pending' | 'hashing' | 'uploading' | 'done' | 'duplicate' | 'error';
 
 export interface UploadItem {
   id: string;
@@ -38,10 +38,10 @@ export function useUpload() {
   }, [updateQueue]);
 
   const clearDone = useCallback(() => {
-    updateQueue(prev => prev.filter(i => i.status !== 'done' && i.status !== 'error'));
+    updateQueue(prev => prev.filter(i => i.status !== 'done' && i.status !== 'duplicate' && i.status !== 'error'));
   }, [updateQueue]);
 
-  const start = useCallback(async (subpath: string) => {
+  const start = useCallback(async () => {
     if (isRunningRef.current) return;
     isRunningRef.current = true;
     setIsRunning(true);
@@ -50,10 +50,22 @@ export function useUpload() {
 
     for (const item of pending) {
       updateQueue(prev =>
-        prev.map(i => i.id === item.id ? { ...i, status: 'uploading' as UploadStatus, progress: 0 } : i)
+        prev.map(i => i.id === item.id ? { ...i, status: 'hashing' as UploadStatus, progress: 0 } : i)
       );
       try {
-        await uploadFile(item.file, subpath, (loaded, total) => {
+        const sha256 = await sha256OfFile(item.file);
+        const existing = await checkAssetExists(sha256);
+        if (existing.exists) {
+          updateQueue(prev =>
+            prev.map(i => i.id === item.id ? { ...i, status: 'duplicate' as UploadStatus, progress: 100 } : i)
+          );
+          continue;
+        }
+
+        updateQueue(prev =>
+          prev.map(i => i.id === item.id ? { ...i, status: 'uploading' as UploadStatus, progress: 0 } : i)
+        );
+        await uploadAsset(item.file, (loaded, total) => {
           updateQueue(prev =>
             prev.map(i => i.id === item.id ? { ...i, progress: Math.round((loaded / total) * 100) } : i)
           );

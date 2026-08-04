@@ -1,58 +1,50 @@
 import Foundation
 
-/// One file entry from GET /api/browse/:folderKey?recursive=true
-struct GalleryFile: Codable, Identifiable {
-    let name: String
-    let path: String        // e.g. "2026/05/13/IMG_0042.jpg"
-    let size: Int
-    let modifiedAt: String
-    var hasThumbnail: Bool
+/// One item from GET /api/timeline
+struct AssetSummary: Codable, Identifiable {
+    let id: String
+    let takenAt: String       // ISO8601 local capture time, e.g. "2026-05-13T10:00:00"
+    let type: String          // "photo" | "video"
+    let width: Int?
+    let height: Int?
+    let durationS: Double?
+    let favorite: Bool
+    let hasThumb: Bool
 
-    var id: String { path }
+    var isVideo: Bool { type == "video" }
 
-    enum CodingKeys: String, CodingKey {
-        case name, path, size, modifiedAt
-        case hasThumbnail = "has_thumbnail"
-    }
+    /// "2026-05-13" derived from the takenAt prefix
+    var dateKey: String { String(takenAt.prefix(10)) }
 
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        name        = try c.decode(String.self, forKey: .name)
-        path        = try c.decode(String.self, forKey: .path)
-        size        = try c.decode(Int.self,    forKey: .size)
-        modifiedAt  = try c.decode(String.self, forKey: .modifiedAt)
-        hasThumbnail = (try? c.decode(Bool.self, forKey: .hasThumbnail)) ?? false
-    }
-
-    /// Last path component: "IMG_0042.jpg"
-    var filename: String { (path as NSString).lastPathComponent }
-
-    /// Directory portion: "2026/05/13"
-    var subpath: String { (path as NSString).deletingLastPathComponent }
-
-    /// "2026-05-13" derived from "2026/05/13/..." path prefix
-    var dateKey: String {
-        let parts = path.split(separator: "/", maxSplits: 3)
-        guard parts.count >= 3 else { return "Unknown" }
-        return "\(parts[0])-\(parts[1])-\(parts[2])"
+    /// "May 13, 2026 at 10:00 AM" for display in the lightbox/detail view
+    var takenAtDisplay: String {
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        guard let d = parser.date(from: takenAt) else { return takenAt }
+        let out = DateFormatter()
+        out.dateStyle = .medium
+        out.timeStyle = .short
+        return out.string(from: d)
     }
 }
 
-/// Server response shape
-struct BrowseRecursiveResponse: Codable {
-    let files: [GalleryFile]
-    let total: Int
+/// Server response shape for GET /api/timeline
+struct TimelineResponse: Codable {
+    let items: [AssetSummary]
+    let nextCursor: String?
 }
 
-/// Client-side grouping of GalleryFiles by date
+/// Client-side grouping of AssetSummary by date
 struct GalleryGroup: Identifiable {
     let date: String        // "2026-05-13"
-    let files: [GalleryFile]
+    let files: [AssetSummary]
 
     var id: String { date }
 
     var displayDate: String {
         let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd"
         guard let d = f.date(from: date) else { return date }
         f.dateStyle = .long

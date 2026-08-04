@@ -1,17 +1,22 @@
-import { useState } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import { ThemeProvider, createGlobalStyle } from 'styled-components';
 import styled from 'styled-components';
 import { theme } from './styles/theme';
 import { getToken, clearToken } from './api/client';
 import { LoginScreen } from './components/LoginScreen';
 import { GalleryView } from './components/GalleryView';
+import { AlbumsView } from './components/AlbumsView';
 import { UploadView } from './components/UploadView';
 import { SettingsView } from './components/SettingsView';
+
+// maplibre-gl is large (~1MB) and only needed on the Map tab — code-split it
+// so it isn't in the app's initial bundle/PWA precache.
+const MapView = lazy(() => import('./components/MapView').then(m => ({ default: m.MapView })));
 import { InstallPrompt } from './components/pwa/InstallPrompt';
 import { UpdatePrompt } from './components/pwa/UpdatePrompt';
 import { OfflineBanner } from './components/pwa/OfflineBanner';
 
-type Tab = 'gallery' | 'upload' | 'settings';
+type Tab = 'gallery' | 'albums' | 'map' | 'upload' | 'settings';
 
 const GlobalStyle = createGlobalStyle`
   *, *::before, *::after {
@@ -39,6 +44,8 @@ const GlobalStyle = createGlobalStyle`
 
 const TABS: { id: Tab; label: string; Icon: typeof ImagesIcon }[] = [
   { id: 'gallery',  label: 'Gallery',  Icon: ImagesIcon  },
+  { id: 'albums',   label: 'Albums',   Icon: AlbumsIcon  },
+  { id: 'map',      label: 'Map',      Icon: MapIcon     },
   { id: 'upload',   label: 'Upload',   Icon: UploadIcon  },
   { id: 'settings', label: 'Settings', Icon: SettingsIcon },
 ];
@@ -92,6 +99,8 @@ export default function App() {
           {/* ── Page content ── */}
           <Content>
             {tab === 'gallery'  && <GalleryView />}
+            {tab === 'albums'   && <AlbumsView />}
+            {tab === 'map'      && <Suspense fallback={null}><MapView /></Suspense>}
             {tab === 'upload'   && <UploadView />}
             {tab === 'settings' && <SettingsView onSignOut={handleSignOut} />}
           </Content>
@@ -304,6 +313,27 @@ function UploadIcon({ strokeWidth = 2, ...props }: IconProps) {
       <polyline points="16 16 12 12 8 16" />
       <line x1="12" y1="12" x2="12" y2="21" />
       <path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3" />
+    </svg>
+  );
+}
+
+function AlbumsIcon({ strokeWidth = 2, ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <path d="M4 15l4-4a2 2 0 012.8 0L16 16" />
+      <path d="M14 13l1.5-1.5a2 2 0 012.8 0L20 13" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+    </svg>
+  );
+}
+
+function MapIcon({ strokeWidth = 2, ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
+      <line x1="8" y1="2" x2="8" y2="18" />
+      <line x1="16" y1="6" x2="16" y2="22" />
     </svg>
   );
 }

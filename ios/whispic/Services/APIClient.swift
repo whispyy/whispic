@@ -16,6 +16,29 @@ enum APIError: LocalizedError {
     }
 }
 
+struct ExistsResponse: Codable {
+    let exists: Bool
+    let assetId: String?
+}
+
+struct UploadResult: Codable {
+    let id: String?
+    let duplicate: Bool?
+    let assetId: String?
+    let takenAt: String?
+    let type: String?
+    let thumbStatus: String?
+
+    /// The server-side asset id, whether this was a fresh upload or a dedup hit.
+    var resolvedAssetId: String? {
+        (duplicate == true) ? assetId : id
+    }
+}
+
+enum AssetKind: String {
+    case thumb, preview, original
+}
+
 final class APIClient {
     static let shared = APIClient()
     private let config = BackupConfig.shared
@@ -53,8 +76,29 @@ final class APIClient {
 
     // MARK: - Upload
 
-    func uploadPhoto(fileData: Data, filename: String, subpath: String) async throws {
-        let url = try baseURL.appendingPathComponent("api/upload")
+    func checkAssetExists(sha256: String) async throws -> ExistsResponse {
+        var comps = URLComponents(
+            url: try baseURL.appendingPathComponent("api/assets/exists"),
+            resolvingAgainstBaseURL: false
+        )!
+        comps.queryItems = [URLQueryItem(name: "sha256", value: sha256)]
+        var req = URLRequest(url: comps.url!)
+        req.setValue("Bearer \(try token)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        try checkHTTP(response, data)
+        return try JSONDecoder().decode(ExistsResponse.self, from: data)
+    }
+
+    func uploadAsset(
+        fileData: Data,
+        filename: String,
+        mimeType: String,
+        creationDate: String?,
+        latitude: Double?,
+        longitude: Double?
+    ) async throws -> UploadResult {
+        let url = try baseURL.appendingPathComponent("api/assets")
         let tok = try token
         let boundary = "Boundary-\(UUID().uuidString)"
 
@@ -70,12 +114,11 @@ final class APIClient {
             body += "--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n"
                 .data(using: .utf8)!
         }
-        field("folderKey", "photos")
-        field("subpath", subpath)
-        field("filenameOverride", filename)
-        field("thumbnail", "on")
+        if let creationDate { field("creationDate", creationDate) }
+        if let latitude { field("latitude", String(latitude)) }
+        if let longitude { field("longitude", String(longitude)) }
 
-        body += "--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\nContent-Type: application/octet-stream\r\n\r\n"
+        body += "--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\nContent-Type: \(mimeType)\r\n\r\n"
             .data(using: .utf8)!
         body += fileData
         body += "\r\n--\(boundary)--\r\n".data(using: .utf8)!
@@ -83,46 +126,183 @@ final class APIClient {
         req.httpBody = body
         let (data, response) = try await URLSession.shared.data(for: req)
         try checkHTTP(response, data)
+        return try JSONDecoder().decode(UploadResult.self, from: data)
     }
 
     // MARK: - Gallery
 
-    func fetchGallery() async throws -> BrowseRecursiveResponse {
+    func fetchTimeline(cursor: String? = nil, limit: Int = 200) async throws -> TimelineResponse {
         var comps = URLComponents(
-            url: try baseURL.appendingPathComponent("api/browse/photos"),
+            url: try baseURL.appendingPathComponent("api/timeline"),
             resolvingAgainstBaseURL: false
         )!
-        comps.queryItems = [URLQueryItem(name: "recursive", value: "true")]
+        var queryItems = [URLQueryItem(name: "limit", value: String(limit))]
+        if let cursor { queryItems.append(URLQueryItem(name: "cursor", value: cursor)) }
+        comps.queryItems = queryItems
+
         var req = URLRequest(url: comps.url!)
         req.setValue("Bearer \(try token)", forHTTPHeaderField: "Authorization")
 
         let (data, response) = try await URLSession.shared.data(for: req)
         try checkHTTP(response, data)
-        return try JSONDecoder().decode(BrowseRecursiveResponse.self, from: data)
+        return try JSONDecoder().decode(TimelineResponse.self, from: data)
     }
 
-    func photoRequest(for file: GalleryFile) throws -> URLRequest {
-        let base = try baseURL
-        var comps = URLComponents(
-            url: base.appendingPathComponent("api/browse/photos/\(file.filename)"),
-            resolvingAgainstBaseURL: false
-        )!
-        comps.queryItems = [URLQueryItem(name: "subpath", value: file.subpath)]
-        var req = URLRequest(url: comps.url!)
+    func assetRequest(id: String, kind: AssetKind) throws -> URLRequest {
+        let url = try baseURL.appendingPathComponent("api/assets/\(id)/\(kind.rawValue)")
+        var req = URLRequest(url: url)
         req.setValue("Bearer \(try token)", forHTTPHeaderField: "Authorization")
         return req
     }
 
-    func thumbnailRequest(for file: GalleryFile) throws -> URLRequest {
-        let base = try baseURL
+    func searchAssets(
+        q: String? = nil,
+        type: String? = nil,
+        camera: String? = nil,
+        place: String? = nil,
+        favorite: Bool? = nil,
+        from: String? = nil,
+        to: String? = nil,
+        cursor: String? = nil,
+        limit: Int = 200
+    ) async throws -> TimelineResponse {
         var comps = URLComponents(
-            url: base.appendingPathComponent("api/browse/photos/\(file.filename)"),
+            url: try baseURL.appendingPathComponent("api/search"),
             resolvingAgainstBaseURL: false
         )!
-        comps.queryItems = [URLQueryItem(name: "subpath", value: file.subpath + "/.thumbnails")]
+        var queryItems = [URLQueryItem(name: "limit", value: String(limit))]
+        if let q, !q.isEmpty { queryItems.append(URLQueryItem(name: "q", value: q)) }
+        if let type { queryItems.append(URLQueryItem(name: "type", value: type)) }
+        if let camera, !camera.isEmpty { queryItems.append(URLQueryItem(name: "camera", value: camera)) }
+        if let place, !place.isEmpty { queryItems.append(URLQueryItem(name: "place", value: place)) }
+        if favorite == true { queryItems.append(URLQueryItem(name: "favorite", value: "true")) }
+        if let from { queryItems.append(URLQueryItem(name: "from", value: from)) }
+        if let to { queryItems.append(URLQueryItem(name: "to", value: to)) }
+        if let cursor { queryItems.append(URLQueryItem(name: "cursor", value: cursor)) }
+        comps.queryItems = queryItems
+
         var req = URLRequest(url: comps.url!)
         req.setValue("Bearer \(try token)", forHTTPHeaderField: "Authorization")
-        return req
+        let (data, response) = try await URLSession.shared.data(for: req)
+        try checkHTTP(response, data)
+        return try JSONDecoder().decode(TimelineResponse.self, from: data)
+    }
+
+    // MARK: - Favorites & trash
+
+    func toggleFavorite(id: String) async throws -> Bool {
+        let url = try baseURL.appendingPathComponent("api/assets/\(id)/favorite")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(try token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: req)
+        try checkHTTP(response, data)
+        struct Resp: Codable { let favorite: Bool }
+        return try JSONDecoder().decode(Resp.self, from: data).favorite
+    }
+
+    func trashAsset(id: String) async throws {
+        let url = try baseURL.appendingPathComponent("api/assets/\(id)")
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        req.setValue("Bearer \(try token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: req)
+        try checkHTTP(response, data)
+    }
+
+    func restoreAsset(id: String) async throws {
+        let url = try baseURL.appendingPathComponent("api/assets/\(id)/restore")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(try token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: req)
+        try checkHTTP(response, data)
+    }
+
+    func fetchTrash() async throws -> [AssetSummary] {
+        let url = try baseURL.appendingPathComponent("api/trash")
+        var req = URLRequest(url: url)
+        req.setValue("Bearer \(try token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: req)
+        try checkHTTP(response, data)
+        struct Resp: Codable { let items: [AssetSummary] }
+        return try JSONDecoder().decode(Resp.self, from: data).items
+    }
+
+    // MARK: - Albums
+
+    func fetchAlbums() async throws -> [Album] {
+        let url = try baseURL.appendingPathComponent("api/albums")
+        var req = URLRequest(url: url)
+        req.setValue("Bearer \(try token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: req)
+        try checkHTTP(response, data)
+        struct Resp: Codable { let items: [Album] }
+        return try JSONDecoder().decode(Resp.self, from: data).items
+    }
+
+    func createAlbum(name: String) async throws -> Album {
+        let url = try baseURL.appendingPathComponent("api/albums")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(try token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(["name": name])
+        let (data, response) = try await URLSession.shared.data(for: req)
+        try checkHTTP(response, data)
+        return try JSONDecoder().decode(Album.self, from: data)
+    }
+
+    func renameAlbum(id: String, name: String) async throws -> Album {
+        let url = try baseURL.appendingPathComponent("api/albums/\(id)")
+        var req = URLRequest(url: url)
+        req.httpMethod = "PATCH"
+        req.setValue("Bearer \(try token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(["name": name])
+        let (data, response) = try await URLSession.shared.data(for: req)
+        try checkHTTP(response, data)
+        return try JSONDecoder().decode(Album.self, from: data)
+    }
+
+    func deleteAlbum(id: String) async throws {
+        let url = try baseURL.appendingPathComponent("api/albums/\(id)")
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        req.setValue("Bearer \(try token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: req)
+        try checkHTTP(response, data)
+    }
+
+    func fetchAlbum(id: String) async throws -> (album: Album, items: [AssetSummary]) {
+        let url = try baseURL.appendingPathComponent("api/albums/\(id)")
+        var req = URLRequest(url: url)
+        req.setValue("Bearer \(try token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: req)
+        try checkHTTP(response, data)
+        struct Resp: Codable { let album: Album; let items: [AssetSummary] }
+        let decoded = try JSONDecoder().decode(Resp.self, from: data)
+        return (decoded.album, decoded.items)
+    }
+
+    func addAsset(_ assetId: String, toAlbum albumId: String) async throws {
+        let url = try baseURL.appendingPathComponent("api/albums/\(albumId)/assets")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(try token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(["assetId": assetId])
+        let (data, response) = try await URLSession.shared.data(for: req)
+        try checkHTTP(response, data)
+    }
+
+    func removeAsset(_ assetId: String, fromAlbum albumId: String) async throws {
+        let url = try baseURL.appendingPathComponent("api/albums/\(albumId)/assets/\(assetId)")
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        req.setValue("Bearer \(try token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: req)
+        try checkHTTP(response, data)
     }
 
     // MARK: - Private

@@ -1,5 +1,7 @@
 import Foundation
 import Photos
+import CryptoKit
+import UniformTypeIdentifiers
 
 final class BackupService {
     static let shared = BackupService()
@@ -32,15 +34,23 @@ final class BackupService {
             guard session.isRunning else { break }
             do {
                 let (data, filename) = try await photoLibrary.fetchOriginalData(for: item.asset)
-                let subpath = datePath(for: item.asset)
                 await MainActor.run { session.currentFilename = filename }
 
-                try await api.uploadPhoto(fileData: data, filename: filename, subpath: subpath)
+                let sha256 = sha256Hex(data)
+                let serverAssetId = try await resolveServerAssetId(
+                    sha256: sha256,
+                    data: data,
+                    filename: filename,
+                    asset: item.asset
+                )
+
                 try store.markBackedUp(BackedUpAsset(
-                    assetId:    item.asset.localIdentifier,
-                    filename:   filename,
-                    albumId:    item.albumId,
-                    backedUpAt: Date()
+                    assetId:       item.asset.localIdentifier,
+                    filename:      filename,
+                    albumId:       item.albumId,
+                    sha256:        sha256,
+                    serverAssetId: serverAssetId,
+                    backedUpAt:    Date()
                 ))
                 await MainActor.run { session.uploaded += 1 }
             } catch {
@@ -54,10 +64,50 @@ final class BackupService {
         await MainActor.run { session.finish() }
     }
 
-    private func datePath(for asset: PHAsset) -> String {
+    /// Skips the upload entirely if the server already has this content (by hash),
+    /// which makes cross-device / reinstall backups idempotent and resumable.
+    private func resolveServerAssetId(
+        sha256: String,
+        data: Data,
+        filename: String,
+        asset: PHAsset
+    ) async throws -> String {
+        let existing = try await api.checkAssetExists(sha256: sha256)
+        if existing.exists, let id = existing.assetId {
+            return id
+        }
+
+        let location = asset.location
+        let result = try await api.uploadAsset(
+            fileData: data,
+            filename: filename,
+            mimeType: mimeType(for: filename),
+            creationDate: asset.creationDate.map(isoLocal),
+            latitude: location?.coordinate.latitude,
+            longitude: location?.coordinate.longitude
+        )
+        guard let id = result.resolvedAssetId else {
+            throw NSError(
+                domain: "BackupService", code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "No asset id in upload response"]
+            )
+        }
+        return id
+    }
+
+    private func isoLocal(_ date: Date) -> String {
         let f = DateFormatter()
-        f.dateFormat = "yyyy/MM/dd"
-        f.timeZone = TimeZone(identifier: "UTC")
-        return f.string(from: asset.creationDate ?? Date())
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        return f.string(from: date)
+    }
+
+    private func mimeType(for filename: String) -> String {
+        let ext = (filename as NSString).pathExtension
+        return UTType(filenameExtension: ext)?.preferredMIMEType ?? "application/octet-stream"
+    }
+
+    private func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }

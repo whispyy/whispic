@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import styled from 'styled-components';
 import { authenticate, setServerURL, getServerURL } from '../api/client';
+import { TrashView } from './TrashView';
 
 interface Props {
   onSignOut: () => void;
@@ -12,6 +13,11 @@ export function SettingsView({ onSignOut }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [showTrash, setShowTrash] = useState(false);
+
+  if (showTrash) {
+    return <TrashView onBack={() => setShowTrash(false)} />;
+  }
 
   function handleUrlBlur() {
     setServerURL(url);
@@ -70,6 +76,11 @@ export function SettingsView({ onSignOut }: Props) {
             {loading ? 'Connecting…' : 'Reconnect'}
           </ConnectBtn>
         </Form>
+      </Section>
+
+      <Section>
+        <SectionTitle>Library</SectionTitle>
+        <DangerBtn onClick={() => setShowTrash(true)} $muted>Trash</DangerBtn>
       </Section>
 
       <Section>
@@ -193,11 +204,11 @@ const ConnectBtn = styled.button`
   }
 `;
 
-const DangerBtn = styled.button`
+const DangerBtn = styled.button<{ $muted?: boolean }>`
   background: none;
   border: none;
   border-radius: 0;
-  color: ${({ theme }) => theme.colors.error};
+  color: ${({ theme, $muted }) => $muted ? theme.colors.text : theme.colors.error};
   cursor: pointer;
   font-size: 0.9375rem;
   font-weight: 500;
@@ -210,6 +221,6 @@ const DangerBtn = styled.button`
   gap: ${({ theme }) => theme.spacing.sm};
 
   &:hover {
-    background: rgba(248, 113, 113, 0.08);
+    background: ${({ $muted }) => $muted ? 'rgba(255, 255, 255, 0.06)' : 'rgba(248, 113, 113, 0.08)'};
   }
 `;

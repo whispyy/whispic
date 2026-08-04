@@ -1,0 +1,26 @@
+{
+  "name": "whispic-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsc --watch --preserveWatchOutput & node --watch dist/index.js",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "busboy": "^1.6.0",
+    "exiftool-vendored": "^37.1.0",
+    "express": "^5.1.0",
+    "sharp": "^0.35.3",
+    "ulid": "^2.3.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/busboy": "^1.5.4",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}
