@@ -19,19 +19,25 @@ enum APIError: LocalizedError {
 struct ExistsResponse: Codable {
     let exists: Bool
     let assetId: String?
+    /// Content is present but sitting in the server's trash. `exists` is false in
+    /// that case so we re-upload, which restores it instead of letting the purge
+    /// job delete the only backup of a photo that's still on this device.
+    let trashed: Bool?
 }
 
 struct UploadResult: Codable {
     let id: String?
     let duplicate: Bool?
+    let restored: Bool?
     let assetId: String?
     let takenAt: String?
     let type: String?
     let thumbStatus: String?
 
-    /// The server-side asset id, whether this was a fresh upload or a dedup hit.
+    /// The server-side asset id, whether this was a fresh upload, a dedup hit, or
+    /// a restore of previously trashed content.
     var resolvedAssetId: String? {
-        (duplicate == true) ? assetId : id
+        (duplicate == true || restored == true) ? assetId : id
     }
 }
 
@@ -90,8 +96,11 @@ final class APIClient {
         return try JSONDecoder().decode(ExistsResponse.self, from: data)
     }
 
+    /// Uploads from a file on disk. The multipart envelope is assembled on disk too and
+    /// handed to `upload(for:fromFile:)`, because building it in memory would make a
+    /// large video resident a second time on top of the exported copy.
     func uploadAsset(
-        fileData: Data,
+        fileURL: URL,
         filename: String,
         mimeType: String,
         creationDate: String?,
@@ -108,23 +117,35 @@ final class APIClient {
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         req.timeoutInterval = 300
 
-        var body = Data()
+        var prefix = Data()
 
         func field(_ name: String, _ value: String) {
-            body += "--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n"
+            prefix += "--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n"
                 .data(using: .utf8)!
         }
         if let creationDate { field("creationDate", creationDate) }
         if let latitude { field("latitude", String(latitude)) }
         if let longitude { field("longitude", String(longitude)) }
 
-        body += "--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\nContent-Type: \(mimeType)\r\n\r\n"
+        prefix += "--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\nContent-Type: \(mimeType)\r\n\r\n"
             .data(using: .utf8)!
-        body += fileData
-        body += "\r\n--\(boundary)--\r\n".data(using: .utf8)!
 
-        req.httpBody = body
-        let (data, response) = try await URLSession.shared.data(for: req)
+        let bodyURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whispic-body-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: bodyURL) }
+
+        try prefix.write(to: bodyURL)
+        let out = try FileHandle(forWritingTo: bodyURL)
+        try out.seekToEnd()
+        let input = try FileHandle(forReadingFrom: fileURL)
+        while let chunk = try input.read(upToCount: 1 << 20), !chunk.isEmpty {
+            try out.write(contentsOf: chunk)
+        }
+        try input.close()
+        try out.write(contentsOf: "\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        try out.close()
+
+        let (data, response) = try await URLSession.shared.upload(for: req, fromFile: bodyURL)
         try checkHTTP(response, data)
         return try JSONDecoder().decode(UploadResult.self, from: data)
     }

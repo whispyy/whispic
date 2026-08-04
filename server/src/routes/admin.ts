@@ -8,33 +8,10 @@ import { db } from '../db/index.js';
 import type { AssetRow } from '../db/types.js';
 import { extractMetadata } from '../ingest/exif.js';
 import { sha256File } from '../ingest/hash.js';
+import { mimeForFilename, typeForMime } from '../ingest/mime.js';
 import { enqueueJob } from '../jobs/queue.js';
 
 export const adminRouter = Router();
-
-const MIME_BY_EXT: Record<string, string> = {
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.png': 'image/png',
-  '.heic': 'image/heic',
-  '.heif': 'image/heif',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-  '.mp4': 'video/mp4',
-  '.mov': 'video/quicktime',
-  '.m4v': 'video/x-m4v',
-  '.avi': 'video/x-msvideo',
-  '.mkv': 'video/x-matroska',
-  '.webm': 'video/webm',
-};
-
-function mimeFor(filePath: string): string {
-  return MIME_BY_EXT[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream';
-}
-
-function typeFor(mime: string): 'photo' | 'video' {
-  return mime.startsWith('video/') ? 'video' : 'photo';
-}
 
 function isoLocalFromDate(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -76,8 +53,8 @@ adminRouter.post('/api/admin/rescan', requireAuth, (req, res, next) => {
 
       const stats = await stat(filePath);
       const metadata = await extractMetadata(filePath);
-      const mime = mimeFor(filePath);
-      const type = typeFor(mime);
+      const mime = mimeForFilename(filePath);
+      const type = typeForMime(mime);
       const takenAtLocal = metadata.takenAtLocal ?? isoLocalFromDate(stats.mtime);
       const relPath = path.relative(config.photosRoot, filePath);
 

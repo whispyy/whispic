@@ -34,6 +34,12 @@ export const config = {
     const hours = parseInt(process.env.SESSION_TTL_HOURS || '168', 10);
     return isNaN(hours) || hours <= 0 ? 168 : hours;
   })(),
+  // Caps a single upload so one client can't fill the disk. Default 20 GiB is
+  // well above any phone-captured video.
+  maxUploadBytes: (() => {
+    const bytes = parseInt(process.env.MAX_UPLOAD_BYTES || '', 10);
+    return isNaN(bytes) || bytes <= 0 ? 20 * 1024 * 1024 * 1024 : bytes;
+  })(),
   photosRoot,
   originalsDir,
   derivedDir,

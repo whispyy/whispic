@@ -11,51 +11,64 @@ final class GalleryService {
     var isLoadingMore = false
     var error: String?
 
+    /// Which endpoint the current page set came from. `loadMore()` must keep using
+    /// the same one — paging a search with the timeline endpoint would silently
+    /// append unfiltered assets to the search results.
+    private enum Source {
+        case timeline
+        case search(query: String)
+    }
+
     private var items: [AssetSummary] = []
     private var nextCursor: String?
+    private var source: Source = .timeline
 
     private init() {}
 
     func refresh() async {
-        isLoading = true
-        error = nil
-        do {
-            let response = try await APIClient.shared.fetchTimeline()
-            items = response.items
-            nextCursor = response.nextCursor
-            rebuildGroups()
-        } catch {
-            self.error = error.localizedDescription
-        }
-        isLoading = false
-    }
-
-    func loadMore() async {
-        guard let cursor = nextCursor, !isLoadingMore else { return }
-        isLoadingMore = true
-        do {
-            let response = try await APIClient.shared.fetchTimeline(cursor: cursor)
-            items.append(contentsOf: response.items)
-            nextCursor = response.nextCursor
-            rebuildGroups()
-        } catch {
-            // Leave cursor in place; the next scroll trigger will retry.
-        }
-        isLoadingMore = false
+        await load(.timeline, replacing: true)
     }
 
     func search(query: String) async {
-        isLoading = true
-        error = nil
+        await load(.search(query: query), replacing: true)
+    }
+
+    func loadMore() async {
+        guard nextCursor != nil, !isLoadingMore else { return }
+        isLoadingMore = true
+        await load(source, replacing: false)
+        isLoadingMore = false
+    }
+
+    private func fetchPage(_ source: Source, cursor: String?) async throws -> TimelineResponse {
+        switch source {
+        case .timeline:
+            return try await APIClient.shared.fetchTimeline(cursor: cursor)
+        case .search(let query):
+            return try await APIClient.shared.searchAssets(q: query, cursor: cursor)
+        }
+    }
+
+    private func load(_ source: Source, replacing: Bool) async {
+        if replacing {
+            isLoading = true
+            error = nil
+        }
         do {
-            let response = try await APIClient.shared.searchAssets(q: query)
-            items = response.items
+            let response = try await fetchPage(source, cursor: replacing ? nil : nextCursor)
+            if replacing {
+                items = response.items
+                self.source = source
+            } else {
+                items.append(contentsOf: response.items)
+            }
             nextCursor = response.nextCursor
             rebuildGroups()
         } catch {
-            self.error = error.localizedDescription
+            // On a page append, leave the cursor in place so the next scroll retries.
+            if replacing { self.error = error.localizedDescription }
         }
-        isLoading = false
+        if replacing { isLoading = false }
     }
 
     func setFavorite(_ id: String, favorite: Bool) {

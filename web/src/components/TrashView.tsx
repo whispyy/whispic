@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import styled from 'styled-components';
-import { fetchTrash, restoreAsset, assetThumbURL, AssetSummary } from '../api/client';
-import { isVideo, formatTime } from '../utils/asset';
+import { fetchTrash, restoreAsset, AssetSummary } from '../api/client';
+import { AssetThumbContent } from './AssetThumb';
 
 export function TrashView({ onBack }: { onBack: () => void }) {
   const [items, setItems] = useState<AssetSummary[]>([]);
@@ -47,11 +47,7 @@ export function TrashView({ onBack }: { onBack: () => void }) {
       <Grid>
         {items.map(file => (
           <Thumb key={file.id}>
-            {isVideo(file) ? (
-              <VideoIcon>▶</VideoIcon>
-            ) : (
-              <img src={assetThumbURL(file.id)} alt={formatTime(file.takenAt)} loading="lazy" />
-            )}
+            <AssetThumbContent file={file} />
             <RestoreBtn onClick={() => handleRestore(file.id)}>Restore</RestoreBtn>
           </Thumb>
         ))}
@@ -126,16 +122,13 @@ const Thumb = styled.div`
   }
 `;
 
-const VideoIcon = styled.div`
-  color: ${({ theme }) => theme.colors.textSecondary};
-  font-size: 1.75rem;
-`;
-
+// Anchored to the top so it doesn't sit under the bottom-left video duration badge.
 const RestoreBtn = styled.button`
   position: absolute;
-  bottom: 4px;
+  top: 4px;
   left: 4px;
   right: 4px;
+  z-index: 2;
   background: rgba(0, 0, 0, 0.7);
   border: none;
   border-radius: ${({ theme }) => theme.radius.sm};

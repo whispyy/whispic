@@ -17,6 +17,19 @@ export function clearToken(): void {
   localStorage.removeItem(STORAGE_TOKEN_KEY);
 }
 
+let unauthorizedHandler: (() => void) | null = null;
+
+/// Registered by App so an expired/invalid token drops the UI back to the login
+/// screen instead of leaving every view stuck on "Unauthorized".
+export function setUnauthorizedHandler(fn: () => void): void {
+  unauthorizedHandler = fn;
+}
+
+function onUnauthorized(): void {
+  clearToken();
+  unauthorizedHandler?.();
+}
+
 function baseURL(): string {
   const url = getServerURL();
   if (!url) throw new Error('Server URL not configured');
@@ -29,8 +42,11 @@ function requireToken(): string {
   return t;
 }
 
-async function checkResponse(res: Response): Promise<void> {
+// `signOutOn401` is off for /api/auth itself, where a 401 just means the typed
+// password was wrong — not that an existing session expired.
+async function checkResponse(res: Response, signOutOn401 = true): Promise<void> {
   if (!res.ok) {
+    if (res.status === 401 && signOutOn401) onUnauthorized();
     const body: unknown = await res.json().catch(() => ({}));
     const msg = body && typeof body === 'object' && 'error' in body
       ? String((body as { error: unknown }).error)
@@ -45,7 +61,7 @@ export async function authenticate(password: string): Promise<void> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password }),
   });
-  await checkResponse(res);
+  await checkResponse(res, false);
   const body = await res.json() as { token: string };
   localStorage.setItem(STORAGE_TOKEN_KEY, body.token);
 }
@@ -80,7 +96,7 @@ export interface AssetDetail {
   id: string;
   takenAt: string;
   takenAtUtc: string | null;
-  tzOffset: number | null;
+  tzOffset: string | null;   // "+HH:MM" / "-HH:MM", only when known
   type: 'photo' | 'video';
   filename: string;
   size: number;
@@ -278,7 +294,11 @@ export async function sha256OfFile(file: File): Promise<string> {
   return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-export async function checkAssetExists(sha256: string): Promise<{ exists: boolean; assetId: string | null }> {
+// `exists` is false for content sitting in the server's trash (`trashed: true`),
+// so the upload proceeds and restores it rather than leaving it to be purged.
+export async function checkAssetExists(
+  sha256: string,
+): Promise<{ exists: boolean; trashed: boolean; assetId: string | null }> {
   const res = await fetch(`${baseURL()}/api/assets/exists?sha256=${encodeURIComponent(sha256)}`, {
     headers: { Authorization: `Bearer ${requireToken()}` },
   });
@@ -294,6 +314,7 @@ function localIsoNoTZ(date: Date): string {
 export interface UploadResult {
   id: string;
   duplicate?: boolean;
+  restored?: boolean;
   assetId?: string;
 }
 
@@ -320,6 +341,7 @@ export function uploadAsset(
       if (xhr.status < 400) {
         resolve(JSON.parse(xhr.responseText) as UploadResult);
       } else {
+        if (xhr.status === 401) onUnauthorized();
         try {
           const b = JSON.parse(xhr.responseText) as { error?: string };
           reject(new Error(b.error ?? `HTTP ${xhr.status}`));

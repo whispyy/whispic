@@ -57,8 +57,11 @@ searchRouter.get('/api/search', requireAuth, (req, res) => {
 
   const to = typeof req.query.to === 'string' ? req.query.to : '';
   if (to) {
+    // `taken_at` carries a time ("2024-03-15T14:30:00"), so a bare `to` date
+    // compared with <= would exclude everything taken on that day. Extend a
+    // date-only bound to the end of the day.
     conditions.push('taken_at <= ?');
-    params.push(to);
+    params.push(/^\d{4}-\d{2}-\d{2}$/.test(to) ? `${to}T23:59:59` : to);
   }
 
   if (cursor) {

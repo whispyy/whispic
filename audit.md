@@ -6,31 +6,33 @@ Method: full manual review of server and web sources; manual review of iOS sourc
 
 Severity legend: **High** = data loss, security exposure, or user-visible broken behavior. **Medium** = incorrect behavior in edge cases or robustness gaps. **Low** = code smell / polish.
 
+Status legend: **[FIXED]** = corrected and verified against a running server / real browser. Every High item below is now fixed except the one noted as deferred. See "Resolution notes" at the end for the defects the verification runs themselves uncovered.
+
 ---
 
 ## Server (`server/src`)
 
 ### High
 
-1. **Upload race → 500 + orphaned file** — `routes/assets.ts`
+1. **[FIXED] Upload race → 500 + orphaned file** — `routes/assets.ts`
    Two concurrent uploads of the same content both pass the `sha256` exists-check, both move their file into `originals/`, and the second `INSERT` hits the UNIQUE(sha256) constraint. Result: unhandled 500 to the client and an orphan file left on disk (the file is moved *before* the insert). Fix direction: catch the UNIQUE violation, look up the existing row, return the dedup response, and unlink the just-moved duplicate file.
 
-2. **Temp-file leak on ingest failure** — `routes/assets.ts` / `ingest/hash.ts`
+2. **[FIXED] Temp-file leak on ingest failure** — `routes/assets.ts` / `ingest/hash.ts`
    If `extractMetadata()` or `moveIntoOriginals()` throws after the streamed hash-to-temp-file completes, the temp file is never unlinked. Same in `ingest/hash.ts`: a stream error leaves a partial temp file behind. Repeated failures fill the tmp dir. Wrap the post-hash pipeline in try/finally that unlinks the temp path.
 
-3. **No upload size limit** — `routes/assets.ts`
+3. **[FIXED] No upload size limit** — `routes/assets.ts`
    Busboy is configured without a `limits.fileSize`. Any authenticated client (or leaked token) can fill the disk with a single request. Add a sane cap (or at least a configurable one).
 
-4. **TOCTOU race in filename collision handling → silent overwrite** — `ingest/store.ts`
+4. **[FIXED] TOCTOU race in filename collision handling → silent overwrite** — `ingest/store.ts`
    `resolveUniquePath` loops on `existsSync`, then `rename()`s. Two concurrent uploads with the same filename on the same day can resolve the same "unique" path, and `rename` silently overwrites → permanent loss of one original. Use exclusive-create semantics (`fs.open` with `wx` + copy, or `link`+`unlink`) instead of exists-then-rename.
 
-5. **Album add with nonexistent asset → unhandled 500** — `routes/albums.ts`
+5. **[FIXED] Album add with nonexistent asset → unhandled 500** — `routes/albums.ts`
    `INSERT OR IGNORE INTO album_assets` ignores UNIQUE conflicts but **not** FK violations. Posting an unknown `assetId` throws from better-sqlite3, and since there is no Express error-handling middleware (see #7) the client gets a default HTML 500. Validate asset existence or catch `SQLITE_CONSTRAINT_FOREIGNKEY`.
 
-6. **Search `to` filter excludes the "to" day itself** — `routes/search.ts`
+6. **[FIXED] Search `to` filter excludes the "to" day itself** — `routes/search.ts`
    The filter builds `taken_at <= ?` with a bare `YYYY-MM-DD` value while `taken_at` values contain time components (`YYYY-MM-DDTHH:MM:SS` sorts greater than the bare date). Every asset actually taken on the `to` date is excluded. Append `T23:59:59` (or use `< date+1day`).
 
-7. **No error-handling middleware** — `index.ts`
+7. **[FIXED] No error-handling middleware** — `index.ts`
    Any route throw returns Express's default HTML 500 page with a stack trace (when NODE_ENV isn't production). Clients expect JSON everywhere. Add a final `(err, req, res, next)` handler returning `{ error }` JSON and logging.
 
 ### Medium
@@ -84,13 +86,13 @@ Severity legend: **High** = data loss, security exposure, or user-visible broken
 
 ### High
 
-1. **Video tiles never use the server-generated posters** — `components/GalleryView.tsx` (`TileRow`), `AlbumsView.tsx`, `TrashView.tsx`
+1. **[FIXED] Video tiles never use the server-generated posters** — `components/GalleryView.tsx` (`TileRow`), `AlbumsView.tsx`, `TrashView.tsx`
    Phase 3 added poster thumbnails for videos (`hasThumb` is true once generated), but all three views render a `▶` placeholder for *every* video instead of the thumb. The server work is effectively unused; the gallery looks broken for video-heavy days. Render the thumb (with the play badge overlaid) whenever `hasThumb`.
 
-2. **401 is not handled globally** — `api/client.ts`
+2. **[FIXED] 401 is not handled globally** — `api/client.ts`
    `checkResponse` treats an expired token like any other error; the app shows scattered failures instead of clearing the token and returning to login. Detect 401 → clear stored token → route to LoginScreen.
 
-3. **`AssetDetail.tzOffset` type mismatch** — `api/client.ts`
+3. **[FIXED] `AssetDetail.tzOffset` type mismatch** — `api/client.ts`
    Declared `number | null` but the server sends a string (`"+HH:MM"`). Any arithmetic on it is silently wrong; TS can't catch it because the payload is cast. Fix the type (string) and any consumers.
 
 ### Medium
@@ -107,7 +109,7 @@ Severity legend: **High** = data loss, security exposure, or user-visible broken
 7. **Stale favorite state in Lightbox** — `components/Lightbox.tsx`
    Local favorite state is keyed on `file.favorite` from the `files` array snapshot passed in; after toggling and navigating next/prev and back, the star can show the pre-toggle value if the parent list wasn't refreshed. Lift favorite state or sync mutations into the source list.
 
-8. **Albums/Trash render `<img>` without `hasThumb` check** — `AlbumsView.tsx`, `TrashView.tsx`
+8. **[FIXED] Albums/Trash render `<img>` without `hasThumb` check** — `AlbumsView.tsx`, `TrashView.tsx`
    Assets whose thumbnail job is pending/failed show broken-image icons; GalleryView handles this case with a placeholder — do the same here.
 
 9. **No keyboard navigation in AlbumsView's lightbox** — `AlbumsView.tsx`
@@ -128,10 +130,10 @@ Severity legend: **High** = data loss, security exposure, or user-visible broken
 
 ### High
 
-1. **Search pagination silently reverts to the unfiltered timeline** — `Services/GalleryService.swift:33-45`
+1. **[FIXED] Search pagination silently reverts to the unfiltered timeline** — `Services/GalleryService.swift:33-45`
    After `search(query:)`, `loadMore()` still calls `APIClient.fetchTimeline(cursor:)`. Scrolling past the first page of search results appends *unfiltered timeline* items into the "search results". The service needs a mode (timeline vs search+query) and `loadMore` must call the matching endpoint — or search should clear `nextCursor` if the search API's cursor isn't wired.
 
-2. **Whole asset loaded into memory for upload** — `Services/APIClient.swift` (`uploadAsset`), `Services/BackupService.swift:36-45`, `PhotoLibraryService.fetchOriginalData`
+2. **[FIXED] Whole asset loaded into memory for upload** — `Services/APIClient.swift` (`uploadAsset`), `Services/BackupService.swift:36-45`, `PhotoLibraryService.fetchOriginalData`
    The pipeline is: accumulate full `PHAssetResource` data into `Data`, hash it, then build the *entire multipart body* as another `Data`. A 4K video of several GB means ~2× its size resident → jetsam kill mid-backup. Stream to a temp file (`PHAssetResourceManager.writeData(for:toFile:)`), hash the file incrementally, and use `URLSession.uploadTask(fromFile:)`.
 
 ### Medium
@@ -168,6 +170,43 @@ Severity legend: **High** = data loss, security exposure, or user-visible broken
 - **Dedup + trash interaction**: an asset in trash still occupies its sha256 row; re-uploading the same photo returns the trashed asset's id (`exists?sha256=`), and the iOS client marks it "backed up" while it's invisible in the timeline and will be purged in 30 days — after which the client-side BackupStore still says it's backed up and will never re-upload it. This is the most subtle data-loss path in the system: **purge should also consider that clients believe the content is safe**. Options: `exists` endpoint restores trashed assets, or excludes trashed assets (forcing re-upload → undeletes via the UNIQUE-conflict path once #1 server fix lands).
 - **Error contract**: server has no unified JSON error shape (and no error middleware); web and iOS both compensate with silent catches. Fixing server #7 + surfacing errors in both clients (web #10, iOS #8) is one coherent workstream.
 - **Video posters**: server does the work (Phase 3), iOS uses it, web ignores it (web #1) — the highest-value/lowest-effort fix in this list.
+
+## Resolution notes
+
+All **High** items are fixed except the deferred residual below. Each fix was verified against a
+running `whispic-server` (`PHOTOS_ROOT=/tmp/whispic-audit`, real exiftool/ffmpeg/sharp) and, for the
+web items, the built PWA driven in a real Firefox via Playwright — not by reasoning about the code.
+
+Defects found **by** that verification, which were not in the original review:
+
+- **MP4 stored as `type: "photo"`** — `routes/assets.ts` derived `type` solely from the multipart
+  part's declared MIME, and clients that don't sniff send `application/octet-stream`. Videos were
+  then queued for the photo thumbnail job. Fixed with `ingest/mime.ts` (`resolveMime` falls back to
+  the extension; `typeForMime` shared with `routes/admin.ts` so upload and rescan agree).
+- **`0000:00:00 00:00:00` container date accepted verbatim** — `ingest/exif.ts` stored it as
+  `takenAt: "0000-00-00T00:00:00"` and filed the asset under `originals/0000/00/00/`. MP4/MOV files
+  written without a real clock report exactly this. Fixed with `isPlausibleDate`, so the client hint
+  / mtime fallback applies instead.
+- **All existing test thumbnails were `failed`** (`VipsJpeg: Bogus Huffman table definition`) — the
+  earlier fixtures were synthetic JPEGs, so no poster could ever have rendered. Not a product bug,
+  but it means any prior "posters work" claim was untested. Real ffmpeg-generated media is now used.
+- **Desktop gallery collapsed to the 2-column mobile fallback** — `GalleryView.tsx` measured the grid
+  with a `ResizeObserver` in a `[]`-deps effect that ran while the loading skeleton was still
+  mounted, so `gridRef.current` was `null`, it returned early and never observed, leaving
+  `containerWidth` at 0. Fixed by holding the node in state (`gridEl`) and keying the effect on it.
+- **Trash tile badge overlapped the Restore button** — the shared video duration badge sits
+  bottom-left, where `TrashView`'s full-width Restore button was; the button is now top-anchored.
+
+Deferred (agreed with the user, tracked separately): **the original device never re-verifies its
+`BackupStore` records.** After the trash/dedup fix, a client can still hold a "backed up" record for
+content that was later purged server-side, and will never re-upload it. Needs a bulk
+`POST /api/assets/verify` plus iOS re-enqueue of anything the server no longer has.
+
+Not verifiable on this machine: the iOS fixes were reviewed manually (macOS 11 has no Xcode capable
+of building the app). For iOS High #2 the wire format was verified indirectly — the exact on-disk
+multipart envelope the new `uploadAsset` emits was replicated byte for byte and POSTed to the real
+server, which returned 201 with `size` equal to the source file and a SHA-256 matching `shasum`
+locally, confirming the streamed body is intact and dedup hashes still agree.
 
 ## Suggested priority order
 

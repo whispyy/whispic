@@ -90,13 +90,24 @@ albumsRouter.post('/api/albums/:id/assets', requireAuth, (req, res) => {
     res.status(404).json({ error: 'Not found' });
     return;
   }
-  const assetIds: string[] = Array.isArray(req.body?.assetIds)
+  const rawIds: unknown[] = Array.isArray(req.body?.assetIds)
     ? req.body.assetIds
     : typeof req.body?.assetId === 'string'
       ? [req.body.assetId]
       : [];
+  const assetIds = rawIds.filter((id): id is string => typeof id === 'string' && id.length > 0);
   if (assetIds.length === 0) {
     res.status(400).json({ error: '"assetId" or "assetIds" is required' });
+    return;
+  }
+
+  // `INSERT OR IGNORE` suppresses the UNIQUE conflict of re-adding an asset, but
+  // NOT a foreign-key violation, so an unknown id would throw a 500. Check up
+  // front and report it as a 400 instead.
+  const exists = db.prepare('SELECT 1 FROM assets WHERE id = ?');
+  const unknown = assetIds.filter((id) => !exists.get(id));
+  if (unknown.length > 0) {
+    res.status(400).json({ error: `Unknown asset id(s): ${unknown.join(', ')}` });
     return;
   }
 

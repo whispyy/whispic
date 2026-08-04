@@ -12,7 +12,7 @@ import {
   AssetSummary,
 } from '../api/client';
 import { Lightbox } from './Lightbox';
-import { isVideo, formatTime } from '../utils/asset';
+import { AssetThumbContent } from './AssetThumb';
 
 export function AlbumsView() {
   const [albums, setAlbums] = useState<Album[]>([]);
@@ -165,11 +165,7 @@ function AlbumDetail({ albumId, onBack }: { albumId: string; onBack: () => void 
         {items.map((file, i) => (
           <Thumb key={file.id}>
             <ThumbImg onClick={() => setLightboxIndex(i)}>
-              {isVideo(file) ? (
-                <VideoIcon>▶</VideoIcon>
-              ) : (
-                <img src={assetThumbURL(file.id)} alt={formatTime(file.takenAt)} loading="lazy" />
-              )}
+              <AssetThumbContent file={file} />
             </ThumbImg>
             <RemoveBtn onClick={() => handleRemove(file.id)} aria-label="Remove from album">✕</RemoveBtn>
           </Thumb>
@@ -344,6 +340,7 @@ const Thumb = styled.div`
 `;
 
 const ThumbImg = styled.div`
+  position: relative;
   width: 100%;
   height: 100%;
   overflow: hidden;
@@ -360,11 +357,6 @@ const ThumbImg = styled.div`
     object-fit: cover;
     display: block;
   }
-`;
-
-const VideoIcon = styled.div`
-  color: ${({ theme }) => theme.colors.textSecondary};
-  font-size: 1.75rem;
 `;
 
 const RemoveBtn = styled.button`

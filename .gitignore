@@ -24,3 +24,4 @@ ios/*.dSYM
 # macOS
 .DS_Store
 **/.DS_Store
+.gstack/

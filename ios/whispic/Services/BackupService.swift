@@ -1,6 +1,5 @@
 import Foundation
 import Photos
-import CryptoKit
 import UniformTypeIdentifiers
 
 final class BackupService {
@@ -33,22 +32,17 @@ final class BackupService {
         for item in queue {
             guard session.isRunning else { break }
             do {
-                let (data, filename) = try await photoLibrary.fetchOriginalData(for: item.asset)
-                await MainActor.run { session.currentFilename = filename }
+                let export = try await photoLibrary.exportOriginal(for: item.asset)
+                defer { try? FileManager.default.removeItem(at: export.fileURL) }
+                await MainActor.run { session.currentFilename = export.filename }
 
-                let sha256 = sha256Hex(data)
-                let serverAssetId = try await resolveServerAssetId(
-                    sha256: sha256,
-                    data: data,
-                    filename: filename,
-                    asset: item.asset
-                )
+                let serverAssetId = try await resolveServerAssetId(export: export, asset: item.asset)
 
                 try store.markBackedUp(BackedUpAsset(
                     assetId:       item.asset.localIdentifier,
-                    filename:      filename,
+                    filename:      export.filename,
                     albumId:       item.albumId,
-                    sha256:        sha256,
+                    sha256:        export.sha256,
                     serverAssetId: serverAssetId,
                     backedUpAt:    Date()
                 ))
@@ -67,21 +61,19 @@ final class BackupService {
     /// Skips the upload entirely if the server already has this content (by hash),
     /// which makes cross-device / reinstall backups idempotent and resumable.
     private func resolveServerAssetId(
-        sha256: String,
-        data: Data,
-        filename: String,
+        export: ExportedOriginal,
         asset: PHAsset
     ) async throws -> String {
-        let existing = try await api.checkAssetExists(sha256: sha256)
+        let existing = try await api.checkAssetExists(sha256: export.sha256)
         if existing.exists, let id = existing.assetId {
             return id
         }
 
         let location = asset.location
         let result = try await api.uploadAsset(
-            fileData: data,
-            filename: filename,
-            mimeType: mimeType(for: filename),
+            fileURL: export.fileURL,
+            filename: export.filename,
+            mimeType: mimeType(for: export.filename),
             creationDate: asset.creationDate.map(isoLocal),
             latitude: location?.coordinate.latitude,
             longitude: location?.coordinate.longitude
@@ -105,9 +97,5 @@ final class BackupService {
     private func mimeType(for filename: String) -> String {
         let ext = (filename as NSString).pathExtension
         return UTType(filenameExtension: ext)?.preferredMIMEType ?? "application/octet-stream"
-    }
-
-    private func sha256Hex(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }

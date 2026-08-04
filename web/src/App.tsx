@@ -1,8 +1,8 @@
-import { Suspense, lazy, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { ThemeProvider, createGlobalStyle } from 'styled-components';
 import styled from 'styled-components';
 import { theme } from './styles/theme';
-import { getToken, clearToken } from './api/client';
+import { getToken, clearToken, setUnauthorizedHandler } from './api/client';
 import { LoginScreen } from './components/LoginScreen';
 import { GalleryView } from './components/GalleryView';
 import { AlbumsView } from './components/AlbumsView';
@@ -53,6 +53,10 @@ const TABS: { id: Tab; label: string; Icon: typeof ImagesIcon }[] = [
 export default function App() {
   const [authed, setAuthed] = useState(!!getToken());
   const [tab, setTab] = useState<Tab>('gallery');
+
+  // A token that expired server-side must return the whole app to the login
+  // screen; the client already dropped it from localStorage by this point.
+  useEffect(() => setUnauthorizedHandler(() => setAuthed(false)), []);
 
   function handleSignOut() {
     clearToken();

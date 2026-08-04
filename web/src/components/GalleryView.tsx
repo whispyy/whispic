@@ -1,11 +1,11 @@
-import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import styled from 'styled-components';
 import { useGallery, GalleryGroup } from '../hooks/useGallery';
-import { assetThumbURL, AssetSummary, SearchParams } from '../api/client';
+import { AssetSummary, SearchParams } from '../api/client';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import { Lightbox } from './Lightbox';
-import { isVideo, formatTime } from '../utils/asset';
+import { AssetThumbContent } from './AssetThumb';
 
 interface LightboxState {
   files: AssetSummary[];
@@ -41,17 +41,19 @@ export function GalleryView() {
   const { groups, loading, loadingMore, hasMore, error, refresh, loadMore, updateItem, removeItem } = useGallery(filters);
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
 
-  // Container width drives column count
-  const gridRef = useRef<HTMLDivElement>(null);
+  // Container width drives column count. The grid node is held in state, not a
+  // ref: it only mounts after the loading skeleton is replaced, so a mount-time
+  // effect on a ref would find `null`, never observe, and leave the width at 0
+  // (which renders the desktop grid at the 2-column mobile fallback).
+  const [gridEl, setGridEl] = useState<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
 
   useEffect(() => {
-    const el = gridRef.current;
-    if (!el) return;
+    if (!gridEl) return;
     const ro = new ResizeObserver(entries => setContainerWidth(entries[0].contentRect.width));
-    ro.observe(el);
+    ro.observe(gridEl);
     return () => ro.disconnect();
-  }, []);
+  }, [gridEl]);
 
   // Pull-to-refresh (mobile only — desktop keeps the Refresh button)
   const { containerRef: pullRef, pullDistance, refreshing: ptr } = usePullToRefresh(async () => { await refresh(); });
@@ -80,7 +82,7 @@ export function GalleryView() {
     count: rows.length,
     estimateSize: i => rows[i]?.kind === 'heading' ? HEADING_H : tileSize,
     overscan: 5,
-    scrollMargin: gridRef.current?.offsetTop ?? 0,
+    scrollMargin: gridEl?.offsetTop ?? 0,
   });
 
   useEffect(() => {
@@ -238,7 +240,7 @@ export function GalleryView() {
         </FilterPanel>
       )}
 
-      <div ref={gridRef}>
+      <div ref={setGridEl}>
         <VirtualOuter style={{ height: virtualizer.getTotalSize() }}>
           {virtualItems.map(vItem => {
             const row = rows[vItem.index];
@@ -295,13 +297,7 @@ function TileRow({
     <Grid $cols={colCount}>
       {files.map((file, i) => (
         <Thumb key={file.id} onClick={() => onOpen(i)}>
-          {isVideo(file) ? (
-            <VideoIcon>▶</VideoIcon>
-          ) : file.hasThumb ? (
-            <img src={assetThumbURL(file.id)} alt={formatTime(file.takenAt)} loading="lazy" />
-          ) : (
-            <ThumbPlaceholder />
-          )}
+          <AssetThumbContent file={file} />
         </Thumb>
       ))}
     </Grid>
@@ -543,17 +539,6 @@ const Thumb = styled.div`
   &:hover::after {
     background: rgba(0, 0, 0, 0.18);
   }
-`;
-
-const ThumbPlaceholder = styled.div`
-  width: 100%;
-  height: 100%;
-  background: ${({ theme }) => theme.colors.surface};
-`;
-
-const VideoIcon = styled.div`
-  color: ${({ theme }) => theme.colors.textSecondary};
-  font-size: 1.75rem;
 `;
 
 const SkeletonWrapper = styled.div`

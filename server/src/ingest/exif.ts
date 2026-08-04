@@ -24,10 +24,21 @@ function pad(n: number): string {
   return String(n).padStart(2, '0');
 }
 
+/**
+ * Rejects placeholder dates — MP4/MOV containers written without a real clock
+ * report `0000:00:00 00:00:00`, which would otherwise be stored verbatim and
+ * file the asset under `originals/0000/00/00/`. Returning null here lets the
+ * caller fall back to the client hint or file mtime.
+ */
+function isPlausibleDate(year: number, month: number, day: number): boolean {
+  return year >= 1900 && month >= 1 && month <= 12 && day >= 1 && day <= 31;
+}
+
 function parseDateTag(value: ExifDateTime | string | number | undefined): ParsedDate | null {
   if (value == null) return null;
 
   if (value instanceof ExifDateTime) {
+    if (!isPlausibleDate(value.year, value.month, value.day)) return null;
     const local = `${value.year}-${pad(value.month)}-${pad(value.day)}T${pad(value.hour)}:${pad(value.minute)}:${pad(value.second)}`;
     if (typeof value.tzoffsetMinutes !== 'number') {
       return { local, utc: null, offset: null };
@@ -48,6 +59,7 @@ function parseDateTag(value: ExifDateTime | string | number | undefined): Parsed
     const match = value.match(/^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:([+-]\d{2}:\d{2}))?/);
     if (!match) return null;
     const [, y, mo, da, h, mi, s, offset] = match;
+    if (!isPlausibleDate(Number(y), Number(mo), Number(da))) return null;
     return { local: `${y}-${mo}-${da}T${h}:${mi}:${s}`, utc: null, offset: offset ?? null };
   }
 

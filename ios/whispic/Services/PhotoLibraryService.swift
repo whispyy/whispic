@@ -1,5 +1,6 @@
 import Foundation
 import Photos
+import CryptoKit
 
 struct AlbumInfo: Identifiable {
     let id: String
@@ -73,7 +74,11 @@ final class PhotoLibraryService {
         return assets
     }
 
-    func fetchOriginalData(for asset: PHAsset) async throws -> (Data, String) {
+    /// Streams the asset's original bytes to a temp file and hashes them in the same
+    /// pass, so nothing bigger than one chunk is ever resident — a multi-GB video used
+    /// to be held in memory whole (plus again inside the multipart body), which meant a
+    /// jetsam kill mid-backup. The caller owns `fileURL` and must delete it.
+    func exportOriginal(for asset: PHAsset) async throws -> ExportedOriginal {
         let resources = PHAssetResource.assetResources(for: asset)
         let preferred: Set<PHAssetResourceType> = [.photo, .fullSizePhoto, .video, .fullSizeVideo, .pairedVideo]
         guard let resource = resources.first(where: { preferred.contains($0.type) }) ?? resources.first else {
@@ -83,19 +88,48 @@ final class PhotoLibraryService {
             )
         }
 
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whispic-upload-\(UUID().uuidString)")
+        try Data().write(to: fileURL)
+        let handle = try FileHandle(forWritingTo: fileURL)
+
         return try await withCheckedThrowingContinuation { cont in
-            var data = Data()
+            var hasher = SHA256()
+            var writeError: Error?
             let opts = PHAssetResourceRequestOptions()
             opts.isNetworkAccessAllowed = true
             PHAssetResourceManager.default().requestData(
                 for: resource,
                 options: opts,
-                dataReceivedHandler: { chunk in data.append(chunk) },
+                dataReceivedHandler: { chunk in
+                    guard writeError == nil else { return }
+                    do {
+                        try handle.write(contentsOf: chunk)
+                        hasher.update(data: chunk)
+                    } catch {
+                        writeError = error
+                    }
+                },
                 completionHandler: { error in
-                    if let error = error { cont.resume(throwing: error) }
-                    else { cont.resume(returning: (data, resource.originalFilename)) }
+                    try? handle.close()
+                    if let failure = error ?? writeError {
+                        try? FileManager.default.removeItem(at: fileURL)
+                        cont.resume(throwing: failure)
+                        return
+                    }
+                    cont.resume(returning: ExportedOriginal(
+                        fileURL: fileURL,
+                        filename: resource.originalFilename,
+                        sha256: hasher.finalize().map { String(format: "%02x", $0) }.joined()
+                    ))
                 }
             )
         }
     }
+}
+
+struct ExportedOriginal {
+    let fileURL: URL
+    let filename: String
+    let sha256: String
 }

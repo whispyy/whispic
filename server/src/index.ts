@@ -36,6 +36,29 @@ app.use(albumsRouter);
 app.use(trashRouter);
 app.use(adminRouter);
 
+app.use((req, res) => {
+  res.status(404).json({ error: `No route for ${req.method} ${req.path}` });
+});
+
+// Without this, a throw in any handler returns Express's default HTML error page
+// (with a stack trace outside production), which no client can parse.
+app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  if (res.headersSent) {
+    console.error('Request error after headers were sent:', err);
+    res.end();
+    return;
+  }
+  // Client errors raised by middleware (e.g. express.json on a malformed body)
+  // carry their own 4xx status and a safe message.
+  const status = (err as { status?: number; statusCode?: number }).status ?? (err as { statusCode?: number }).statusCode;
+  if (typeof status === 'number' && status >= 400 && status < 500) {
+    res.status(status).json({ error: err.message });
+    return;
+  }
+  console.error('Unhandled request error:', err);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
 const server = app.listen(config.port, () => {
   console.log(`whispic-server listening on :${config.port}, photosRoot=${config.photosRoot}`);
 });
